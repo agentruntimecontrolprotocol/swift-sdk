@@ -1,0 +1,92 @@
+# CI for swift-sdk (ARCP).
+#
+# Action pinning policy:
+#   - First-party actions (actions/*) are pinned to a major version tag.
+#   - Third-party actions are pinned to a full commit SHA with a version comment.
+#
+# Platforms: macOS only (Package.swift declares .macOS(.v14); no Linux platform).
+# Swift matrix: floor (6.0, from `// swift-tools-version: 6.0`) + latest stable (6.1).
+
+name: test
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE"
+      - ".gitignore"
+      - ".editorconfig"
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE"
+      - ".gitignore"
+      - ".editorconfig"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: swift ${{ matrix.swift }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest]
+        swift: ["6.0", "6.1"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Swift ${{ matrix.swift }}
+        # SwiftyLab/setup-swift v1.14.0
+        uses: SwiftyLab/setup-swift@38f54a76b70d989321de9dc7c840618c08cf56e9
+        with:
+          swift-version: ${{ matrix.swift }}
+
+      - name: Print Swift version
+        run: swift --version
+
+      - name: Cache .build
+        uses: actions/cache@v4
+        with:
+          path: .build
+          key: ${{ runner.os }}-swift-${{ matrix.swift }}-spm-${{ hashFiles('Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-swift-${{ matrix.swift }}-spm-
+
+      - name: Resolve dependencies
+        run: swift package resolve
+
+      - name: Lint (swift-format)
+        run: swift run swift-format lint --recursive --strict Sources Tests
+
+      - name: Build
+        run: swift build --build-tests
+
+      - name: Test
+        run: swift test --skip-build
+
+      - name: Upload test artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-artifacts-swift-${{ matrix.swift }}-${{ matrix.os }}
+          path: |
+            .build/**/*.xctest
+            .build/**/*.log
+            .build/debug/codecov/**
+          if-no-files-found: ignore
+          retention-days: 7
