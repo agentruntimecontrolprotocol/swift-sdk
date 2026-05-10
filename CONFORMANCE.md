@@ -32,20 +32,20 @@ this document to be accurate before tagging `v0.1.0`.
 | §11.2 | Backpressure | Implemented (Phase 3) | explicit `BackpressurePayload` envelope |
 | §11.3 | Sidecar binary frames | **Out of scope v0.1** | base64 only |
 | §11.4 | Reasoning streams (`kind: thought`) | Implemented (Phase 3) | `StreamKind.thought` |
-| §12.1 | `human.input.request/response` | Phase 4 — not implemented | |
-| §12.2 | `human.choice.request/response` | Phase 4 — not implemented | |
-| §12.3 | Multi-channel resolution (first-wins) | Phase 4 — not implemented | Quorum is out of scope |
-| §12.4 | Expiration with default fallback | Phase 4 — not implemented | |
+| §12.1 | `human.input.request/response` | Implemented (Phase 4) | `JobContext.requestHumanInput` + `HumanInputTests` |
+| §12.2 | `human.choice.request/response` | Implemented (Phase 4) | `HumanInputTests.choiceRoundTrip` |
+| §12.3 | Multi-channel resolution (first-wins) | Implemented (Phase 4) | `PendingRegistry` resolves on first response; quorum is out of scope |
+| §12.4 | Expiration with default fallback | Implemented (Phase 4) | `HumanInputTests.expirationDefaults` |
 | §13.1 | Subscriptions | Phase 5 — not implemented | |
 | §13.2 | Filter authorization at compile time | Phase 5 — not implemented | |
 | §13.3 | Backfill + `subscription.backfill_complete` | Phase 5 — not implemented | |
 | §13.4 | `unsubscribe`, `subscribe.closed` | Phase 5 — not implemented | |
 | §14   | Multi-agent (`agent.delegate`, `agent.handoff`) | **Out of scope v0.1** | |
-| §15.1 | Permission model | Phase 4 — not implemented | |
+| §15.1 | Permission model | Implemented (Phase 4) | `PermissionRequestPayload` |
 | §15.2 | Sandboxing | Out of scope (deployment concern) | |
-| §15.3 | Trust levels | Phase 4 — not implemented | |
-| §15.4 | Permission challenge flow | Phase 4 — not implemented | |
-| §15.5 | Lease lifecycle | Phase 4 — not implemented | |
+| §15.3 | Trust levels | Implemented (Phase 4) | `TrustLevel` enum on `IdentityBlock` |
+| §15.4 | Permission challenge flow | Implemented (Phase 4) | `JobContext.requestPermission` + `PermissionLeaseTests` |
+| §15.5 | Lease lifecycle | Implemented (Phase 4) | `LeaseManager` (grant/extend/revoke/expire sweep) |
 | §15.6 | Trust elevation | **Out of scope v0.1** | |
 | §16.1 | `artifact.ref` | Phase 5 — not implemented | |
 | §16.2 | `artifact.put/fetch/release` (inline base64) | Phase 5 — not implemented | |

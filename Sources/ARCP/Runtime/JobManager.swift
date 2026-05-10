@@ -17,6 +17,16 @@ public actor JobManager {
     private var handlers: [String: any ToolHandler] = [:]
     private var jobs: [JobId: JobRecord] = [:]
     private let streamManager: StreamManager
+    public let humanInputRegistry = PendingRegistry<HumanInputResponsePayload>()
+    public let humanChoiceRegistry = PendingRegistry<HumanChoiceResponsePayload>()
+    public let permissionRegistry = PendingRegistry<PermissionOutcome>()
+    public let leaseManager: LeaseManager
+
+    /// Outcome of a permission challenge. RFC §15.4.
+    public enum PermissionOutcome: Sendable {
+        case granted(LeaseId, expiresAt: Date)
+        case denied(reason: String)
+    }
 
     public init(
         sessionId: SessionId,
@@ -29,6 +39,7 @@ public actor JobManager {
         self.cancelDeadline = cancelDeadline
         self.send = send
         self.streamManager = StreamManager(sessionId: sessionId, send: send)
+        self.leaseManager = LeaseManager(sessionId: sessionId, send: send)
         self.log = Logger(label: "arcp.jobs.\(sessionId)")
     }
 
@@ -87,6 +98,7 @@ public actor JobManager {
             sessionId: sessionId,
             sendEnvelope: send,
             streamManager: streamManager,
+            manager: self,
             isCancelledProvider: { [weak self] in
                 guard let self else { return false }
                 return await self.isCancelled(jobId: jobId)
@@ -194,6 +206,150 @@ public actor JobManager {
         await streamManager.dispatch(envelope: envelope)
     }
 
+    /// Resolve a pending human-input request from the client side.
+    public func handleHumanInputResponse(envelope: Envelope, payload: HumanInputResponsePayload) async {
+        guard let id = envelope.correlationId else { return }
+        await humanInputRegistry.resolve(id: id, value: payload)
+    }
+
+    public func handleHumanChoiceResponse(envelope: Envelope, payload: HumanChoiceResponsePayload) async {
+        guard let id = envelope.correlationId else { return }
+        await humanChoiceRegistry.resolve(id: id, value: payload)
+    }
+
+    /// Resolve `permission.grant` / `permission.deny`.
+    public func handlePermissionGrant(envelope: Envelope, payload: PermissionGrantPayload) async {
+        guard let id = envelope.correlationId else { return }
+        do {
+            let leaseId = try await leaseManager.grant(
+                permission: payload.permission,
+                resource: payload.resource,
+                operation: payload.operation,
+                seconds: payload.leaseSeconds
+            )
+            let expiresAt = Date(timeIntervalSinceNow: TimeInterval(payload.leaseSeconds))
+            await permissionRegistry.resolve(id: id, value: .granted(leaseId, expiresAt: expiresAt))
+        } catch {
+            await permissionRegistry.reject(id: id, error: error)
+        }
+    }
+
+    public func handlePermissionDeny(envelope: Envelope, payload: PermissionDenyPayload) async {
+        guard let id = envelope.correlationId else { return }
+        await permissionRegistry.resolve(id: id, value: .denied(reason: payload.reason))
+    }
+
+    public func handleLeaseRefresh(envelope: Envelope, payload: LeaseRefreshPayload) async {
+        try? await leaseManager.refresh(leaseId: payload.leaseId, seconds: payload.requestedSeconds)
+    }
+
+    /// Send a human input request from server to client and await the response.
+    func requestHumanInput(
+        jobId: JobId,
+        prompt: String,
+        responseSchema: JSONValue?,
+        defaultValue: JSONValue?,
+        expiresIn: Duration
+    ) async throws -> HumanInputResponsePayload {
+        let id = MessageId.random()
+        let expiresAt = Date(timeIntervalSinceNow: TimeInterval(expiresIn.timeInterval))
+        try await send(
+            Envelope(
+                id: id,
+                sessionId: sessionId,
+                jobId: jobId,
+                payload: .humanInputRequest(
+                    HumanInputRequestPayload(
+                        prompt: prompt,
+                        responseSchema: responseSchema,
+                        default: defaultValue,
+                        expiresAt: expiresAt
+                    )
+                )
+            )
+        )
+        do {
+            return try await humanInputRegistry.awaitResponse(id: id, deadline: expiresIn)
+        } catch let error as ARCPError where error.code == .deadlineExceeded {
+            if let defaultValue {
+                let synthetic = HumanInputResponsePayload(
+                    value: defaultValue,
+                    respondedBy: "default",
+                    respondedAt: Date()
+                )
+                return synthetic
+            }
+            try? await send(
+                Envelope(
+                    sessionId: sessionId,
+                    jobId: jobId,
+                    correlationId: id,
+                    payload: .humanInputCancelled(
+                        HumanInputCancelledPayload(code: .deadlineExceeded, reason: "expired")
+                    )
+                )
+            )
+            throw error
+        }
+    }
+
+    /// Send a human choice request and await the selection.
+    func requestHumanChoice(
+        jobId: JobId,
+        prompt: String,
+        options: [HumanChoiceRequestPayload.Option],
+        expiresIn: Duration
+    ) async throws -> HumanChoiceResponsePayload {
+        let id = MessageId.random()
+        let expiresAt = Date(timeIntervalSinceNow: TimeInterval(expiresIn.timeInterval))
+        try await send(
+            Envelope(
+                id: id,
+                sessionId: sessionId,
+                jobId: jobId,
+                payload: .humanChoiceRequest(
+                    HumanChoiceRequestPayload(prompt: prompt, options: options, expiresAt: expiresAt)
+                )
+            )
+        )
+        return try await humanChoiceRegistry.awaitResponse(id: id, deadline: expiresIn)
+    }
+
+    /// Send a permission challenge and await grant/deny.
+    func requestPermission(
+        jobId: JobId,
+        permission: String,
+        resource: String,
+        operation: String,
+        reason: String?,
+        leaseSeconds: Int,
+        timeout: Duration
+    ) async throws -> LeaseId {
+        let id = MessageId.random()
+        try await send(
+            Envelope(
+                id: id,
+                sessionId: sessionId,
+                jobId: jobId,
+                payload: .permissionRequest(
+                    PermissionRequestPayload(
+                        permission: permission,
+                        resource: resource,
+                        operation: operation,
+                        reason: reason,
+                        requestedLeaseSeconds: leaseSeconds
+                    )
+                )
+            )
+        )
+        let outcome = try await permissionRegistry.awaitResponse(id: id, deadline: timeout)
+        switch outcome {
+        case .granted(let leaseId, _): return leaseId
+        case .denied(let reason):
+            throw ARCPError.permissionDenied(permission: permission, resource: reason)
+        }
+    }
+
     /// Mark all open jobs cancelled and stop heartbeats. Called when a session
     /// ends to ensure no orphaned Tasks are left running.
     public func shutdown() async {
@@ -203,6 +359,11 @@ public actor JobManager {
             jobs[jobId]?.state = .cancelled
         }
         await streamManager.shutdown()
+        await leaseManager.stop()
+        let closeError = ARCPError.unavailable(reason: "session closing", retryAfter: nil)
+        await humanInputRegistry.failAll(error: closeError)
+        await humanChoiceRegistry.failAll(error: closeError)
+        await permissionRegistry.failAll(error: closeError)
     }
 
     private func isCancelled(jobId: JobId) -> Bool {
@@ -355,12 +516,20 @@ public actor JobManager {
     }
 }
 
+extension Duration {
+    /// Approximate seconds count, including fractional part.
+    public var timeInterval: Double {
+        Double(components.seconds) + Double(components.attoseconds) / 1.0e18
+    }
+}
+
 /// Concrete `JobContext` implementation backed by the runtime's send hook.
 struct ConcreteJobContext: JobContext, Sendable {
     let jobId: JobId
     let sessionId: SessionId
     let sendEnvelope: @Sendable (Envelope) async throws -> Void
     let streamManager: StreamManager
+    let manager: JobManager
     let isCancelledProvider: @Sendable () async -> Bool
 
     func reportProgress(
@@ -421,6 +590,52 @@ struct ConcreteJobContext: JobContext, Sendable {
                 jobId: jobId,
                 payload: .metric(MetricPayload(name: name, value: value, unit: unit, dims: dims))
             )
+        )
+    }
+
+    func requestHumanInput(
+        prompt: String,
+        responseSchema: JSONValue?,
+        default defaultValue: JSONValue?,
+        expiresIn: Duration
+    ) async throws -> HumanInputResponsePayload {
+        try await manager.requestHumanInput(
+            jobId: jobId,
+            prompt: prompt,
+            responseSchema: responseSchema,
+            defaultValue: defaultValue,
+            expiresIn: expiresIn
+        )
+    }
+
+    func requestHumanChoice(
+        prompt: String,
+        options: [HumanChoiceRequestPayload.Option],
+        expiresIn: Duration
+    ) async throws -> HumanChoiceResponsePayload {
+        try await manager.requestHumanChoice(
+            jobId: jobId,
+            prompt: prompt,
+            options: options,
+            expiresIn: expiresIn
+        )
+    }
+
+    func requestPermission(
+        permission: String,
+        resource: String,
+        operation: String,
+        reason: String?,
+        leaseSeconds: Int
+    ) async throws -> LeaseId {
+        try await manager.requestPermission(
+            jobId: jobId,
+            permission: permission,
+            resource: resource,
+            operation: operation,
+            reason: reason,
+            leaseSeconds: leaseSeconds,
+            timeout: .seconds(300)
         )
     }
 }

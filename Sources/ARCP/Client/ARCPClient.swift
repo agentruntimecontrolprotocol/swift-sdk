@@ -16,6 +16,8 @@ public actor ARCPClient {
     private var pendingByInvoke: [MessageId: JobInvocationState] = [:]
     private var invokeByJobId: [JobId: MessageId] = [:]
     private var unhandledContinuation: AsyncStream<Envelope>.Continuation?
+    private var humanInputHandler: any HumanInputHandler = DefaultHumanInputHandler()
+    private var permissionHandler: any PermissionHandler = DefaultPermissionHandler()
 
     private struct JobInvocationState {
         var jobId: JobId?
@@ -190,9 +192,110 @@ public actor ARCPClient {
             if let invokeId = envelope.correlationId, pendingByInvoke[invokeId] != nil {
                 resolve(invokeId: invokeId, outcome: .failed(payload.error))
             }
+        case .humanInputRequest(let payload):
+            Task { [transport, humanInputHandler] in
+                let result: HumanInputResponsePayload
+                do {
+                    result = try await humanInputHandler.handle(payload, jobId: envelope.jobId)
+                } catch {
+                    try? await transport.send(
+                        Envelope(
+                            sessionId: envelope.sessionId,
+                            jobId: envelope.jobId,
+                            correlationId: envelope.id,
+                            payload: .humanInputCancelled(
+                                HumanInputCancelledPayload(code: .cancelled, reason: "\(error)")
+                            )
+                        )
+                    )
+                    return
+                }
+                try? await transport.send(
+                    Envelope(
+                        sessionId: envelope.sessionId,
+                        jobId: envelope.jobId,
+                        correlationId: envelope.id,
+                        payload: .humanInputResponse(result)
+                    )
+                )
+            }
+        case .humanChoiceRequest(let payload):
+            Task { [transport, humanInputHandler] in
+                let result: HumanChoiceResponsePayload
+                do {
+                    result = try await humanInputHandler.handle(payload, jobId: envelope.jobId)
+                } catch {
+                    try? await transport.send(
+                        Envelope(
+                            sessionId: envelope.sessionId,
+                            jobId: envelope.jobId,
+                            correlationId: envelope.id,
+                            payload: .humanInputCancelled(
+                                HumanInputCancelledPayload(code: .cancelled, reason: "\(error)")
+                            )
+                        )
+                    )
+                    return
+                }
+                try? await transport.send(
+                    Envelope(
+                        sessionId: envelope.sessionId,
+                        jobId: envelope.jobId,
+                        correlationId: envelope.id,
+                        payload: .humanChoiceResponse(result)
+                    )
+                )
+            }
+        case .permissionRequest(let payload):
+            Task { [transport, permissionHandler] in
+                let decision: PermissionDecision
+                do {
+                    decision = try await permissionHandler.handle(payload, jobId: envelope.jobId)
+                } catch {
+                    decision = .denied(reason: "\(error)")
+                }
+                let outboundPayload: MessageType
+                switch decision {
+                case .granted(let seconds):
+                    outboundPayload = .permissionGrant(
+                        PermissionGrantPayload(
+                            permission: payload.permission,
+                            resource: payload.resource,
+                            operation: payload.operation,
+                            leaseSeconds: seconds
+                        )
+                    )
+                case .denied(let reason):
+                    outboundPayload = .permissionDeny(
+                        PermissionDenyPayload(
+                            permission: payload.permission,
+                            resource: payload.resource,
+                            reason: reason
+                        )
+                    )
+                }
+                try? await transport.send(
+                    Envelope(
+                        sessionId: envelope.sessionId,
+                        jobId: envelope.jobId,
+                        correlationId: envelope.id,
+                        payload: outboundPayload
+                    )
+                )
+            }
         default:
             unhandledContinuation?.yield(envelope)
         }
+    }
+
+    /// Register a custom human input handler.
+    public func setHumanInputHandler(_ handler: any HumanInputHandler) {
+        self.humanInputHandler = handler
+    }
+
+    /// Register a custom permission handler.
+    public func setPermissionHandler(_ handler: any PermissionHandler) {
+        self.permissionHandler = handler
     }
 
     private func resolve(invokeId: MessageId, outcome: JobOutcome) {

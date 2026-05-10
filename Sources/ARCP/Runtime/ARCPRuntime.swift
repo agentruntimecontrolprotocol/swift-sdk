@@ -267,6 +267,24 @@ public actor ARCPRuntime {
         case .streamChunk, .streamClose, .streamError:
             await jobManager.handleStreamEnvelope(envelope)
             return false
+        case .humanInputResponse(let payload):
+            await jobManager.handleHumanInputResponse(envelope: envelope, payload: payload)
+            return false
+        case .humanChoiceResponse(let payload):
+            await jobManager.handleHumanChoiceResponse(envelope: envelope, payload: payload)
+            return false
+        case .humanInputCancelled:
+            // Client signals timeout/cancel of an in-flight HITL request.
+            return false
+        case .permissionGrant(let payload):
+            await jobManager.handlePermissionGrant(envelope: envelope, payload: payload)
+            return false
+        case .permissionDeny(let payload):
+            await jobManager.handlePermissionDeny(envelope: envelope, payload: payload)
+            return false
+        case .leaseRefresh(let payload):
+            await jobManager.handleLeaseRefresh(envelope: envelope, payload: payload)
+            return false
         case .log, .metric, .traceSpan, .eventEmit:
             // Telemetry from the client side is logged & persisted only.
             return false
