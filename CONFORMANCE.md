@@ -62,8 +62,9 @@ this document to be accurate before tagging `v0.1.0`.
 | §20   | MCP compatibility | Future (parallel concept layer) | |
 | §21   | Extension registry | Implemented (Phase 1) | `ExtensionRegistry` actor |
 | §21.3 | Unknown-message handling | Implemented (Phase 1) | `disposition(forUnknown:optional:)` |
-| §22   | WebSocket transport | Phase 6 — not implemented | `vapor/websocket-kit` |
-| §22   | stdio transport | Phase 6 — not implemented | NDJSON over stdin/stdout |
+| §22   | WebSocket transport (client) | Implemented (Phase 6) | `WebSocketTransport` (client) + `WebSocketClient.connect` |
+| §22   | WebSocket transport (server) | **Partial** | `vapor/websocket-kit` does not expose a public server initializer; full server lands in v0.2. End-to-end WebSocket tests deferred to v0.2. |
+| §22   | stdio transport | Implemented (Phase 6) | `StdioTransport` (NDJSON, readabilityHandler) + `StdioTransportTests` |
 | §22   | HTTP/2 transport | **Out of scope v0.1** | |
 | §22   | QUIC transport | **Out of scope v0.1** | |
 

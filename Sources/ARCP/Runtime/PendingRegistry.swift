@@ -21,7 +21,11 @@ public actor PendingRegistry<Response: Sendable> {
             }
             group.addTask { [weak self] in
                 try await Task.sleep(for: deadline)
-                await self?.cancel(id: id)
+                // Drop the waiter without resolving it — that lets the
+                // deadline error win the race deterministically. We don't
+                // want a cancel-resume here because that would race the
+                // resume against this task's throw.
+                await self?.dropForTimeout(id: id)
                 throw ARCPError.deadlineExceeded(operation: "pending response \(id)")
             }
             defer { group.cancelAll() }
@@ -49,10 +53,20 @@ public actor PendingRegistry<Response: Sendable> {
         return true
     }
 
-    /// Cancel any in-flight pending request — used internally by the deadline race.
+    /// Cancel any in-flight pending request — used by external callers (e.g.
+    /// session shutdown) to forcibly fail an awaiter.
     func cancel(id: MessageId) {
         guard let cont = waiters.removeValue(forKey: id) else { return }
-        cont.resume(throwing: ARCPError.cancelled(operation: "pending \(id)", reason: "deadline"))
+        cont.resume(throwing: ARCPError.cancelled(operation: "pending \(id)", reason: "cancelled"))
+    }
+
+    /// Quietly drop a waiter without delivering a response. Used by the
+    /// deadline race so the deadline task's throw is the one that surfaces.
+    func dropForTimeout(id: MessageId) {
+        guard let cont = waiters.removeValue(forKey: id) else { return }
+        cont.resume(
+            throwing: ARCPError.deadlineExceeded(operation: "pending response \(id)")
+        )
     }
 
     /// Reject every pending awaiter — called when the session ends.
