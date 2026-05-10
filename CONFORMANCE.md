@@ -10,16 +10,16 @@ this document to be accurate before tagging `v0.1.0`.
 | §6.1 | Envelope (struct + custom `Codable`) | Implemented (Phase 1) | `EnvelopeTests` round-trips every variant |
 | §6.4 | Idempotency keys (`id`, `idempotency_key`) | Implemented (Phase 1) | `EventLogTests` |
 | §6.5 | Priority/QoS | Implemented (Phase 1) | Default `normal` enforced on decode |
-| §7   | Capability negotiation | Phase 2 — not implemented | |
-| §8.1 | Four-step handshake | Phase 2 — not implemented | |
-| §8.2 | `bearer` auth | Phase 2 — not implemented | |
-| §8.2 | `signed_jwt` auth | Phase 2 — not implemented | Validated via `jwt-kit` |
-| §8.2 | `none` auth (anonymous) | Phase 2 — not implemented | Requires `anonymous` capability |
+| §7   | Capability negotiation | Implemented (Phase 2) | `CapabilityNegotiator` + `HandshakeTests.capabilityIntersection` |
+| §8.1 | Four-step handshake | Implemented (Phase 2) | `ARCPRuntime.runHandshake` + `HandshakeTests` |
+| §8.2 | `bearer` auth | Implemented (Phase 2) | `BearerAuthValidator` |
+| §8.2 | `signed_jwt` auth | Implemented (Phase 2) | `JWTAuthValidator` (jwt-kit) |
+| §8.2 | `none` auth (anonymous) | Implemented (Phase 2) | gated on `anonymous` capability |
 | §8.2 | `mtls` auth | **Out of scope v0.1** | Throws `.unimplemented(§8.2)` |
 | §8.2 | `oauth2` auth | **Out of scope v0.1** | Throws `.unimplemented(§8.2)` |
 | §8.4 | Re-authentication | Phase 2 — not implemented | |
 | §8.5 | Eviction | Phase 2 — not implemented | |
-| §9   | Stateless and stateful sessions | Phase 2 — not implemented | |
+| §9   | Stateless and stateful sessions | Implemented (Phase 2) | `SessionInfo` carries negotiated state |
 | §9   | Durable sessions | **Out of scope v0.1** | |
 | §10.1 | Durable jobs | Phase 3 — not implemented | |
 | §10.2 | Job state machine | Phase 3 — not implemented | Modeled as enum w/ associated values |
