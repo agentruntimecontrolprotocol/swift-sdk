@@ -9,7 +9,7 @@ struct PermissionLeaseTests {
     func challengeGrant() async throws {
         let pair = MemoryTransport.makePair()
         let runtime = try ARCPRuntime(
-            identity: IdentityBlock(kind: "openclaw", version: "0.1"),
+            identity: IdentityBlock(kind: "example-runtime", version: "0.1"),
             supportedCapabilities: Capabilities(durableJobs: true, humanInput: true),
             auth: BearerAuthValidator(subjectsByToken: ["t": "alice"])
         )
@@ -46,7 +46,7 @@ struct PermissionLeaseTests {
     func challengeDeny() async throws {
         let pair = MemoryTransport.makePair()
         let runtime = try ARCPRuntime(
-            identity: IdentityBlock(kind: "openclaw", version: "0.1"),
+            identity: IdentityBlock(kind: "example-runtime", version: "0.1"),
             supportedCapabilities: Capabilities(durableJobs: true, humanInput: true),
             auth: BearerAuthValidator(subjectsByToken: ["t": "alice"])
         )

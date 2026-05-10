@@ -9,7 +9,7 @@ struct SubscriptionTests {
     func liveTail() async throws {
         let pair = MemoryTransport.makePair()
         let runtime = try ARCPRuntime(
-            identity: IdentityBlock(kind: "openclaw", version: "0.1"),
+            identity: IdentityBlock(kind: "example-runtime", version: "0.1"),
             supportedCapabilities: Capabilities(durableJobs: true, subscriptions: true),
             auth: BearerAuthValidator(subjectsByToken: ["t": "alice"])
         )

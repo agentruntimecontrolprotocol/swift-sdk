@@ -33,7 +33,7 @@ struct ServeCommand: AsyncParsableCommand {
 
     func run() async throws {
         let runtime = try ARCPRuntime(
-            identity: IdentityBlock(kind: "openclaw-cli", version: ARCPVersion.sdk),
+            identity: IdentityBlock(kind: "example-runtime-cli", version: ARCPVersion.sdk),
             supportedCapabilities: Capabilities(
                 streaming: true,
                 durableJobs: true,

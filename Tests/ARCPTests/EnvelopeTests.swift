@@ -126,7 +126,7 @@ let roundTripFixtures: [RoundTripFixture] = [
         payload: .sessionOpen(
             SessionOpenPayload(
                 auth: AuthBlock(scheme: .bearer, token: "tok"),
-                client: IdentityBlock(kind: "claude-code", version: "1.4.2"),
+                client: IdentityBlock(kind: "example-client", version: "1.4.2"),
                 capabilities: Capabilities(streaming: true, humanInput: true, artifacts: true)
             )
         )
@@ -148,7 +148,7 @@ let roundTripFixtures: [RoundTripFixture] = [
         payload: .sessionAccepted(
             SessionAcceptedPayload(
                 sessionId: SessionId("sess_a"),
-                runtime: IdentityBlock(kind: "openclaw", version: "0.1"),
+                runtime: IdentityBlock(kind: "example-runtime", version: "0.1"),
                 capabilities: Capabilities(streaming: true)
             )
         )

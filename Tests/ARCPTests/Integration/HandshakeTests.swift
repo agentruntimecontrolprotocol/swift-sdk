@@ -9,7 +9,7 @@ struct HandshakeTests {
     func bearerHappyPath() async throws {
         let pair = MemoryTransport.makePair()
         let runtime = try ARCPRuntime(
-            identity: IdentityBlock(kind: "openclaw", version: "0.1"),
+            identity: IdentityBlock(kind: "example-runtime", version: "0.1"),
             supportedCapabilities: Capabilities(streaming: true, humanInput: true),
             auth: BearerAuthValidator(subjectsByToken: ["secret-token": "alice"])
         )
@@ -17,23 +17,23 @@ struct HandshakeTests {
         let client = try await ARCPClient.open(
             transport: pair.client,
             auth: AuthBlock(scheme: .bearer, token: "secret-token"),
-            client: IdentityBlock(kind: "claude-code", version: "1.4.2"),
+            client: IdentityBlock(kind: "example-client", version: "1.4.2"),
             capabilities: Capabilities(streaming: true, humanInput: true)
         )
-        #expect(client.info.runtimeIdentity.kind == "openclaw")
+        #expect(client.info.runtimeIdentity.kind == "example-runtime")
         #expect(client.info.negotiatedCapabilities.streaming == true)
         #expect(client.info.negotiatedCapabilities.humanInput == true)
         await client.close()
         let serverInfo = try await serverTask.value
         #expect(serverInfo.principal.subject == "alice")
-        #expect(serverInfo.clientIdentity.kind == "claude-code")
+        #expect(serverInfo.clientIdentity.kind == "example-client")
     }
 
     @Test("Challenge / response handshake completes")
     func challengeResponse() async throws {
         let pair = MemoryTransport.makePair()
         let runtime = try ARCPRuntime(
-            identity: IdentityBlock(kind: "openclaw", version: "0.1"),
+            identity: IdentityBlock(kind: "example-runtime", version: "0.1"),
             supportedCapabilities: Capabilities(),
             auth: BearerAuthValidator(subjectsByToken: ["t": "alice"]),
             challengeRequired: true,
@@ -43,7 +43,7 @@ struct HandshakeTests {
         let client = try await ARCPClient.open(
             transport: pair.client,
             auth: AuthBlock(scheme: .bearer, token: "t"),
-            client: IdentityBlock(kind: "claude-code", version: "1.4.2")
+            client: IdentityBlock(kind: "example-client", version: "1.4.2")
         )
         #expect(client.info.sessionId.rawValue.hasPrefix("sess_"))
         await client.close()
@@ -55,7 +55,7 @@ struct HandshakeTests {
     func badToken() async throws {
         let pair = MemoryTransport.makePair()
         let runtime = try ARCPRuntime(
-            identity: IdentityBlock(kind: "openclaw", version: "0.1"),
+            identity: IdentityBlock(kind: "example-runtime", version: "0.1"),
             supportedCapabilities: Capabilities(),
             auth: BearerAuthValidator(subjectsByToken: ["good": "alice"])
         )
@@ -66,7 +66,7 @@ struct HandshakeTests {
             _ = try await ARCPClient.open(
                 transport: pair.client,
                 auth: AuthBlock(scheme: .bearer, token: "bad"),
-                client: IdentityBlock(kind: "claude-code", version: "1.4.2")
+                client: IdentityBlock(kind: "example-client", version: "1.4.2")
             )
         }
         await pair.client.close()
@@ -77,7 +77,7 @@ struct HandshakeTests {
     func anonymousRequiresCapability() async throws {
         let pair = MemoryTransport.makePair()
         let runtime = try ARCPRuntime(
-            identity: IdentityBlock(kind: "openclaw", version: "0.1"),
+            identity: IdentityBlock(kind: "example-runtime", version: "0.1"),
             supportedCapabilities: Capabilities(),  // anonymous=false
             auth: BearerAuthValidator(subjectsByToken: [:])
         )
@@ -98,7 +98,7 @@ struct HandshakeTests {
     func requiredCapabilityMissing() async throws {
         let pair = MemoryTransport.makePair()
         let runtime = try ARCPRuntime(
-            identity: IdentityBlock(kind: "openclaw", version: "0.1"),
+            identity: IdentityBlock(kind: "example-runtime", version: "0.1"),
             supportedCapabilities: Capabilities(),  // streaming=false
             auth: BearerAuthValidator(subjectsByToken: ["t": "alice"]),
             requiredCapabilities: ["streaming"]
@@ -120,7 +120,7 @@ struct HandshakeTests {
     func capabilityIntersection() async throws {
         let pair = MemoryTransport.makePair()
         let runtime = try ARCPRuntime(
-            identity: IdentityBlock(kind: "openclaw", version: "0.1"),
+            identity: IdentityBlock(kind: "example-runtime", version: "0.1"),
             supportedCapabilities: Capabilities(streaming: true, humanInput: false, artifacts: true),
             auth: BearerAuthValidator(subjectsByToken: ["t": "alice"])
         )
@@ -128,7 +128,7 @@ struct HandshakeTests {
         let client = try await ARCPClient.open(
             transport: pair.client,
             auth: AuthBlock(scheme: .bearer, token: "t"),
-            client: IdentityBlock(kind: "claude-code", version: "1"),
+            client: IdentityBlock(kind: "example-client", version: "1"),
             capabilities: Capabilities(streaming: true, humanInput: true, artifacts: false)
         )
         #expect(client.info.negotiatedCapabilities.streaming == true)
@@ -142,7 +142,7 @@ struct HandshakeTests {
     func pingPong() async throws {
         let pair = MemoryTransport.makePair()
         let runtime = try ARCPRuntime(
-            identity: IdentityBlock(kind: "openclaw", version: "0.1"),
+            identity: IdentityBlock(kind: "example-runtime", version: "0.1"),
             supportedCapabilities: Capabilities(),
             auth: BearerAuthValidator(subjectsByToken: ["t": "alice"])
         )

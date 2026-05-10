@@ -54,7 +54,7 @@ struct StdioTransportTests {
             outbound: serverToClient.fileHandleForWriting
         )
         let runtime = try ARCPRuntime(
-            identity: IdentityBlock(kind: "openclaw", version: "0.1"),
+            identity: IdentityBlock(kind: "example-runtime", version: "0.1"),
             supportedCapabilities: Capabilities(streaming: true),
             auth: BearerAuthValidator(subjectsByToken: ["t": "alice"])
         )
@@ -65,7 +65,7 @@ struct StdioTransportTests {
             client: IdentityBlock(kind: "tester", version: "1"),
             capabilities: Capabilities(streaming: true)
         )
-        #expect(client.info.runtimeIdentity.kind == "openclaw")
+        #expect(client.info.runtimeIdentity.kind == "example-runtime")
         await client.close()
         let info = try await serverTask.value
         #expect(info.principal.subject == "alice")

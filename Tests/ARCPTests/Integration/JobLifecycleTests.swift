@@ -15,7 +15,7 @@ struct JobLifecycleTests {
     ) {
         let pair = MemoryTransport.makePair()
         let runtime = try ARCPRuntime(
-            identity: IdentityBlock(kind: "openclaw", version: "0.1"),
+            identity: IdentityBlock(kind: "example-runtime", version: "0.1"),
             supportedCapabilities: Capabilities(streaming: true, durableJobs: true, humanInput: true),
             auth: BearerAuthValidator(subjectsByToken: ["t": "alice"])
         )
