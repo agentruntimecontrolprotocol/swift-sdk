@@ -36,10 +36,10 @@ this document to be accurate before tagging `v0.1.0`.
 | §12.2 | `human.choice.request/response` | Implemented (Phase 4) | `HumanInputTests.choiceRoundTrip` |
 | §12.3 | Multi-channel resolution (first-wins) | Implemented (Phase 4) | `PendingRegistry` resolves on first response; quorum is out of scope |
 | §12.4 | Expiration with default fallback | Implemented (Phase 4) | `HumanInputTests.expirationDefaults` |
-| §13.1 | Subscriptions | Phase 5 — not implemented | |
-| §13.2 | Filter authorization at compile time | Phase 5 — not implemented | |
-| §13.3 | Backfill + `subscription.backfill_complete` | Phase 5 — not implemented | |
-| §13.4 | `unsubscribe`, `subscribe.closed` | Phase 5 — not implemented | |
+| §13.1 | Subscriptions | Implemented (Phase 5) | `SubscriptionManager` + `SubscriptionTests.liveTail` |
+| §13.2 | Filter authorization at compile time | Implemented (Phase 5) | filter validated at `subscribe` time |
+| §13.3 | Backfill + `subscription.backfill_complete` | Implemented (Phase 5) | sentinel emitted at end of backfill |
+| §13.4 | `unsubscribe`, `subscribe.closed` | Implemented (Phase 5) | `SubscriptionManager.unsubscribe` / `shutdown` |
 | §14   | Multi-agent (`agent.delegate`, `agent.handoff`) | **Out of scope v0.1** | |
 | §15.1 | Permission model | Implemented (Phase 4) | `PermissionRequestPayload` |
 | §15.2 | Sandboxing | Out of scope (deployment concern) | |
@@ -47,9 +47,9 @@ this document to be accurate before tagging `v0.1.0`.
 | §15.4 | Permission challenge flow | Implemented (Phase 4) | `JobContext.requestPermission` + `PermissionLeaseTests` |
 | §15.5 | Lease lifecycle | Implemented (Phase 4) | `LeaseManager` (grant/extend/revoke/expire sweep) |
 | §15.6 | Trust elevation | **Out of scope v0.1** | |
-| §16.1 | `artifact.ref` | Phase 5 — not implemented | |
-| §16.2 | `artifact.put/fetch/release` (inline base64) | Phase 5 — not implemented | |
-| §16.3 | Retention sweep | Phase 5 — not implemented | |
+| §16.1 | `artifact.ref` | Implemented (Phase 5) | `ArtifactRef` + `ArtifactStore.put` returns ref |
+| §16.2 | `artifact.put/fetch/release` (inline base64) | Implemented (Phase 5) | `ArtifactStore` + SQLite blobs + `ArtifactTests` |
+| §16.3 | Retention sweep | Implemented (Phase 5) | `ArtifactStore.startSweep` periodic Task |
 | §17.1 | Trace propagation (`@TaskLocal`) | Implemented (Phase 1) | `Tracing.withTrace` |
 | §17.2 | Structured logs via swift-log | Implemented (Phase 1) | `LogPayload` + `swift-log` Logger |
 | §17.3 | Metrics | Implemented (Phase 1) | `MetricPayload` |
@@ -57,7 +57,7 @@ this document to be accurate before tagging `v0.1.0`.
 | §18.1 | Error envelope | Implemented (Phase 1) | `ErrorEnvelope` |
 | §18.2 | Canonical error taxonomy | Implemented (Phase 1) | `ARCPError` + `ErrorsTests` |
 | §18.3 | Retryability flag (`isRetryable`) | Implemented (Phase 1) | `ErrorsTests.retrySemantics` |
-| §19   | Resume by `after_message_id` | Phase 5 — not implemented | |
+| §19   | Resume by `after_message_id` | Implemented (Phase 5) | `ARCPRuntime.handleResume` + `ResumeTests` |
 | §19   | Checkpoint-based resume | **Out of scope v0.1** | |
 | §20   | MCP compatibility | Future (parallel concept layer) | |
 | §21   | Extension registry | Implemented (Phase 1) | `ExtensionRegistry` actor |

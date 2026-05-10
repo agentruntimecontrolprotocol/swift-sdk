@@ -13,6 +13,8 @@ public actor ARCPRuntime {
     public let auth: any AuthValidator
     public let eventLog: EventLog
     public let extensionRegistry: ExtensionRegistry
+    public let subscriptionManager: SubscriptionManager
+    public let artifactStore: ArtifactStore
 
     private let log: Logger
     private let negotiator: CapabilityNegotiator
@@ -44,6 +46,8 @@ public actor ARCPRuntime {
         self.eventLog = try eventLog ?? EventLog.inMemory()
         self.extensionRegistry =
             extensionRegistry ?? ExtensionRegistry(advertised: supportedCapabilities.extensions)
+        self.subscriptionManager = SubscriptionManager(eventLog: self.eventLog)
+        self.artifactStore = ArtifactStore(eventLog: self.eventLog)
         self.log = Logger(label: "arcp.runtime")
     }
 
@@ -98,6 +102,7 @@ public actor ARCPRuntime {
     private func send(_ envelope: Envelope, transport: any Transport) async throws {
         try await transport.send(envelope)
         try? await persistOptional(envelope, sessionId: envelope.sessionId)
+        await subscriptionManager.route(envelope: envelope)
     }
 
     private func runHandshake(
@@ -285,6 +290,26 @@ public actor ARCPRuntime {
         case .leaseRefresh(let payload):
             await jobManager.handleLeaseRefresh(envelope: envelope, payload: payload)
             return false
+        case .subscribe(let payload):
+            try await handleSubscribe(envelope: envelope, payload: payload, transport: transport)
+            return false
+        case .unsubscribe(let payload):
+            await subscriptionManager.unsubscribe(payload.subscriptionId)
+            return false
+        case .artifactPut(let payload):
+            try await handleArtifactPut(
+                envelope: envelope, payload: payload, info: info, transport: transport)
+            return false
+        case .artifactFetch(let payload):
+            try await handleArtifactFetch(
+                envelope: envelope, payload: payload, info: info, transport: transport)
+            return false
+        case .artifactRelease(let payload):
+            try await artifactStore.release(artifactId: payload.artifactId)
+            return false
+        case .resume(let payload):
+            try await handleResume(envelope: envelope, payload: payload, info: info, transport: transport)
+            return false
         case .log, .metric, .traceSpan, .eventEmit:
             // Telemetry from the client side is logged & persisted only.
             return false
@@ -305,6 +330,106 @@ public actor ARCPRuntime {
                 detail: "message type \(envelope.payload.typeName) not handled at the runtime"
             )
         }
+    }
+
+    private func handleSubscribe(
+        envelope: Envelope,
+        payload: SubscribePayload,
+        transport: any Transport
+    ) async throws {
+        let subscriptionId = SubscriptionId.random()
+        let send: @Sendable (Envelope) async throws -> Void = { [weak self] env in
+            guard let self else { return }
+            try await self.send(env, transport: transport)
+        }
+        await subscriptionManager.subscribe(
+            subscriptionId: subscriptionId,
+            filter: payload.filter,
+            since: payload.since,
+            send: send
+        )
+        try await transport.send(
+            Envelope(
+                sessionId: envelope.sessionId,
+                correlationId: envelope.id,
+                payload: .subscribeAccepted(
+                    SubscribeAcceptedPayload(subscriptionId: subscriptionId)
+                )
+            )
+        )
+    }
+
+    private func handleArtifactPut(
+        envelope: Envelope,
+        payload: ArtifactPutPayload,
+        info: SessionInfo,
+        transport: any Transport
+    ) async throws {
+        guard let bytes = Data(base64Encoded: payload.data) else {
+            throw ARCPError.invalidArgument(field: "data", detail: "not base64")
+        }
+        let ref = try await artifactStore.put(
+            sessionId: info.sessionId,
+            artifactId: payload.artifactId,
+            mediaType: payload.mediaType,
+            data: bytes,
+            ttlSeconds: payload.ttlSeconds
+        )
+        try await send(
+            Envelope(
+                sessionId: info.sessionId,
+                correlationId: envelope.id,
+                payload: .artifactRef(ArtifactRefPayload(ref: ref))
+            ),
+            transport: transport
+        )
+    }
+
+    private func handleArtifactFetch(
+        envelope: Envelope,
+        payload: ArtifactFetchPayload,
+        info: SessionInfo,
+        transport: any Transport
+    ) async throws {
+        let (ref, data) = try await artifactStore.fetch(artifactId: payload.artifactId)
+        try await send(
+            Envelope(
+                sessionId: info.sessionId,
+                correlationId: envelope.id,
+                payload: .artifactRef(
+                    ArtifactRefPayload(ref: ref, data: data.base64EncodedString())
+                )
+            ),
+            transport: transport
+        )
+    }
+
+    private func handleResume(
+        envelope: Envelope,
+        payload: ResumePayload,
+        info: SessionInfo,
+        transport: any Transport
+    ) async throws {
+        guard payload.checkpointId == nil else {
+            throw ARCPError.unimplemented(
+                section: "§19",
+                detail: "checkpoint-based resume is out of scope for v0.1"
+            )
+        }
+        let envelopes = try await eventLog.replay(
+            sessionId: info.sessionId,
+            after: payload.afterMessageId
+        )
+        for replayed in envelopes {
+            try await transport.send(replayed)
+        }
+        try await transport.send(
+            Envelope(
+                sessionId: info.sessionId,
+                correlationId: envelope.id,
+                payload: .ack(AckPayload(detail: "resume complete: \(envelopes.count) events"))
+            )
+        )
     }
 
     private func persistOptional(_ envelope: Envelope, sessionId: SessionId?) async throws {

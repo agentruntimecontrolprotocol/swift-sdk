@@ -174,6 +174,95 @@ public actor EventLog {
         )
     }
 
+    /// Persist an artifact body. RFC §16.2.
+    @discardableResult
+    public func putArtifact(
+        sessionId: SessionId,
+        artifactId: ArtifactId? = nil,
+        mediaType: String,
+        data: Data,
+        ttlSeconds: Int? = nil
+    ) throws -> ArtifactRef {
+        let id = artifactId ?? .random()
+        let sha = ArtifactStore.sha256(data)
+        let expiresAt: Date? = ttlSeconds.map { Date(timeIntervalSinceNow: TimeInterval($0)) }
+        let expiresIso = expiresAt.map { Self.timestampFormatter.string(from: $0) }
+        try db.run(
+            """
+            INSERT OR REPLACE INTO arcp_artifacts
+            (artifact_id, session_id, media_type, size, sha256, expires_at, body)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            id.rawValue,
+            sessionId.rawValue,
+            mediaType,
+            Int64(data.count),
+            sha,
+            expiresIso,
+            Blob(bytes: [UInt8](data))
+        )
+        return ArtifactRef(
+            artifactId: id,
+            uri: "arcp://session/\(sessionId.rawValue)/artifact/\(id.rawValue)",
+            mediaType: mediaType,
+            size: data.count,
+            sha256: sha,
+            expiresAt: expiresAt
+        )
+    }
+
+    /// Fetch an artifact's bytes + reference. RFC §16.2.
+    public func fetchArtifact(artifactId: ArtifactId) throws -> (ArtifactRef, Data) {
+        let rows = try db.prepare(
+            """
+            SELECT artifact_id, session_id, media_type, size, sha256, expires_at, body
+            FROM arcp_artifacts WHERE artifact_id = ?
+            """,
+            [artifactId.rawValue]
+        )
+        for row in rows {
+            guard let id = row[0] as? String,
+                let session = row[1] as? String,
+                let mediaType = row[2] as? String,
+                let size = row[3] as? Int64,
+                let body = row[6] as? Blob
+            else { continue }
+            let sha = row[4] as? String
+            let expiresAt = (row[5] as? String).flatMap(Self.timestampFormatter.date(from:))
+            if let expiresAt, expiresAt < Date() {
+                _ = try? db.run(
+                    "DELETE FROM arcp_artifacts WHERE artifact_id = ?",
+                    artifactId.rawValue
+                )
+                throw ARCPError.notFound(kind: "artifact", id: id)
+            }
+            let ref = ArtifactRef(
+                artifactId: ArtifactId(id),
+                uri: "arcp://session/\(session)/artifact/\(id)",
+                mediaType: mediaType,
+                size: Int(size),
+                sha256: sha,
+                expiresAt: expiresAt
+            )
+            return (ref, Data(body.bytes))
+        }
+        throw ARCPError.notFound(kind: "artifact", id: artifactId.rawValue)
+    }
+
+    /// Release (delete) an artifact.
+    public func releaseArtifact(artifactId: ArtifactId) throws {
+        try db.run("DELETE FROM arcp_artifacts WHERE artifact_id = ?", artifactId.rawValue)
+    }
+
+    /// Sweep expired artifacts. Called by `ArtifactStore`'s periodic Task.
+    public func sweepExpiredArtifacts() {
+        let now = Self.timestampFormatter.string(from: Date())
+        _ = try? db.run(
+            "DELETE FROM arcp_artifacts WHERE expires_at IS NOT NULL AND expires_at < ?",
+            now
+        )
+    }
+
     nonisolated(unsafe) private static let timestampFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
