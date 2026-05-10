@@ -1,0 +1,15 @@
+.DS_Store
+.build/
+.swiftpm/
+Packages/
+*.xcodeproj
+*.xcworkspace
+xcuserdata/
+DerivedData/
+.netrc
+*.profraw
+*.profdata
+.coverage/
+coverage/
+docs.doccarchive/
+.docc-build/
