@@ -21,7 +21,7 @@ public actor ARCPClient {
 
     private struct JobInvocationState {
         var jobId: JobId?
-        var continuation: CheckedContinuation<JobOutcome, any Error>?
+        var continuation: CheckedContinuation<(JobOutcome, JobId?), any Error>?
         var progressContinuation: AsyncStream<JobProgressPayload>.Continuation?
     }
 
@@ -301,7 +301,7 @@ public actor ARCPClient {
     private func resolve(invokeId: MessageId, outcome: JobOutcome) {
         guard let state = pendingByInvoke.removeValue(forKey: invokeId) else { return }
         state.progressContinuation?.finish()
-        state.continuation?.resume(returning: outcome)
+        state.continuation?.resume(returning: (outcome, state.jobId))
     }
 
     private func finishUnhandled() {
@@ -409,15 +409,15 @@ public actor ARCPClient {
             payload: .toolInvoke(ToolInvokePayload(tool: tool, arguments: arguments))
         )
         try await transport.send(envelope)
-        let outcome: JobOutcome = try await withCheckedThrowingContinuation { cont in
+        let (outcome, jobId) = try await withCheckedThrowingContinuation { cont in
             attachContinuation(invokeId: invokeId, cont: cont)
         }
-        return InvocationResult(jobId: nil, outcome: outcome, progress: progressStream)
+        return InvocationResult(jobId: jobId, outcome: outcome, progress: progressStream)
     }
 
     private func attachContinuation(
         invokeId: MessageId,
-        cont: CheckedContinuation<JobOutcome, any Error>
+        cont: CheckedContinuation<(JobOutcome, JobId?), any Error>
     ) {
         if var state = pendingByInvoke[invokeId] {
             state.continuation = cont

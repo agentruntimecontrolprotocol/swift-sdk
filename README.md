@@ -114,4 +114,4 @@ when a non-optional sender expects them.
 
 ## License
 
-TBD (matches the parent repository).
+Apache License 2.0 — see [`LICENSE`](LICENSE) in this directory.
