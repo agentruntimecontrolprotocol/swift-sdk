@@ -17,6 +17,8 @@ public actor ARCPRuntime {
     private let log: Logger
     private let negotiator: CapabilityNegotiator
     private var sessions: [SessionId: SessionInfo] = [:]
+    private var jobManagers: [SessionId: JobManager] = [:]
+    private var registeredHandlers: [any ToolHandler] = []
     private let challengeRequired: Bool
     private let challengeNonce: @Sendable () -> String
 
@@ -50,6 +52,14 @@ public actor ARCPRuntime {
         Array(sessions.values)
     }
 
+    /// Register a tool handler globally. Future sessions inherit it.
+    public func register(_ handler: any ToolHandler) {
+        registeredHandlers.append(handler)
+        for manager in jobManagers.values {
+            Task { await manager.register(handler) }
+        }
+    }
+
     /// Drive the session over `transport`. Completes the handshake and then
     /// dispatches incoming envelopes until the channel closes or
     /// `session.close` is received. This call returns when the session ends.
@@ -65,11 +75,29 @@ public actor ARCPRuntime {
 
         let info = try await runHandshake(transport: transport, mailbox: mailbox)
         sessions[info.sessionId] = info
+        let jobManager = JobManager(
+            sessionId: info.sessionId,
+            send: { [weak self] envelope in
+                guard let self else { return }
+                try await self.send(envelope, transport: transport)
+            }
+        )
+        for handler in registeredHandlers {
+            await jobManager.register(handler)
+        }
+        jobManagers[info.sessionId] = jobManager
         log.info("session opened", metadata: ["session": "\(info.sessionId)"])
-        await dispatchLoop(transport: transport, mailbox: mailbox, info: info)
+        await dispatchLoop(transport: transport, mailbox: mailbox, info: info, jobManager: jobManager)
+        await jobManager.shutdown()
+        jobManagers.removeValue(forKey: info.sessionId)
         sessions.removeValue(forKey: info.sessionId)
         log.info("session closed", metadata: ["session": "\(info.sessionId)"])
         return info
+    }
+
+    private func send(_ envelope: Envelope, transport: any Transport) async throws {
+        try await transport.send(envelope)
+        try? await persistOptional(envelope, sessionId: envelope.sessionId)
     }
 
     private func runHandshake(
@@ -178,12 +206,18 @@ public actor ARCPRuntime {
     private func dispatchLoop(
         transport: any Transport,
         mailbox: Mailbox<Envelope>,
-        info: SessionInfo
+        info: SessionInfo,
+        jobManager: JobManager
     ) async {
         while let envelope = await mailbox.next() {
             do {
                 try await persistOptional(envelope, sessionId: info.sessionId)
-                let shouldEnd = try await handle(envelope: envelope, transport: transport, info: info)
+                let shouldEnd = try await handle(
+                    envelope: envelope,
+                    transport: transport,
+                    info: info,
+                    jobManager: jobManager
+                )
                 if shouldEnd { break }
             } catch let error as ARCPError {
                 log.error(
@@ -206,7 +240,8 @@ public actor ARCPRuntime {
     private func handle(
         envelope: Envelope,
         transport: any Transport,
-        info: SessionInfo
+        info: SessionInfo,
+        jobManager: JobManager
     ) async throws -> Bool {
         switch envelope.payload {
         case .ping(let payload):
@@ -220,6 +255,21 @@ public actor ARCPRuntime {
             return false
         case .sessionClose:
             return true
+        case .toolInvoke(let payload):
+            try await jobManager.handleToolInvoke(envelope: envelope, payload: payload)
+            return false
+        case .cancel(let payload):
+            try await jobManager.handleCancel(envelope: envelope, payload: payload)
+            return false
+        case .interrupt(let payload):
+            try await jobManager.handleInterrupt(envelope: envelope, payload: payload)
+            return false
+        case .streamChunk, .streamClose, .streamError:
+            await jobManager.handleStreamEnvelope(envelope)
+            return false
+        case .log, .metric, .traceSpan, .eventEmit:
+            // Telemetry from the client side is logged & persisted only.
+            return false
         case .unknown(let typeName, _):
             let optional = envelope.extensions?["optional"] == .bool(true)
             switch await extensionRegistry.disposition(forUnknown: typeName, optional: optional) {
@@ -234,7 +284,7 @@ public actor ARCPRuntime {
         default:
             throw ARCPError.unimplemented(
                 section: "§6.2",
-                detail: "message type \(envelope.payload.typeName) not handled in Phase 2"
+                detail: "message type \(envelope.payload.typeName) not handled at the runtime"
             )
         }
     }

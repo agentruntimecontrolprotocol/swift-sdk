@@ -21,17 +21,17 @@ this document to be accurate before tagging `v0.1.0`.
 | §8.5 | Eviction | Phase 2 — not implemented | |
 | §9   | Stateless and stateful sessions | Implemented (Phase 2) | `SessionInfo` carries negotiated state |
 | §9   | Durable sessions | **Out of scope v0.1** | |
-| §10.1 | Durable jobs | Phase 3 — not implemented | |
-| §10.2 | Job state machine | Phase 3 — not implemented | Modeled as enum w/ associated values |
-| §10.3 | Heartbeats (default `N=2`) | Phase 3 — not implemented | Deterministic via injected `Clock` |
-| §10.4 | Cancellation (cooperative + escalation) | Phase 3 — not implemented | |
-| §10.5 | Interrupts | Phase 3 — not implemented | |
+| §10.1 | Durable jobs | Implemented (Phase 3) | `JobManager` |
+| §10.2 | Job state machine | Implemented (Phase 3) | `JobState` enum + `JobLifecycleTests` |
+| §10.3 | Heartbeats (default `N=2`) | Implemented (Phase 3) | `JobManager.heartbeatLoop`; deadline watchdog deferred to Phase 6 |
+| §10.4 | Cancellation (cooperative + escalation) | Implemented (Phase 3) | `JobManager.handleCancel` + escalation Task |
+| §10.5 | Interrupts | Implemented (Phase 3) | `JobManager.handleInterrupt` (HITL response loop in Phase 4) |
 | §10.6 | Scheduled jobs (`job.schedule`) | **Out of scope v0.1** | |
-| §11.1 | Stream kinds (`text`, `event`, `log`, `thought`) | Phase 3 — not implemented | |
-| §11.1 | Stream kind `binary` (base64) | Phase 3 — not implemented | |
-| §11.2 | Backpressure | Phase 3 — not implemented | 80%/50% thresholds |
+| §11.1 | Stream kinds (`text`, `event`, `log`, `thought`) | Implemented (Phase 3) | `StreamManager` |
+| §11.1 | Stream kind `binary` (base64) | Implemented (Phase 3) | `StreamChunkPayload.data` is base64 |
+| §11.2 | Backpressure | Implemented (Phase 3) | explicit `BackpressurePayload` envelope |
 | §11.3 | Sidecar binary frames | **Out of scope v0.1** | base64 only |
-| §11.4 | Reasoning streams (`kind: thought`) | Phase 3 — not implemented | |
+| §11.4 | Reasoning streams (`kind: thought`) | Implemented (Phase 3) | `StreamKind.thought` |
 | §12.1 | `human.input.request/response` | Phase 4 — not implemented | |
 | §12.2 | `human.choice.request/response` | Phase 4 — not implemented | |
 | §12.3 | Multi-channel resolution (first-wins) | Phase 4 — not implemented | Quorum is out of scope |

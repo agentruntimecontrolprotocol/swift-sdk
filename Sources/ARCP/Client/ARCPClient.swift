@@ -13,7 +13,22 @@ public actor ARCPClient {
     private let drainer: Task<Void, Never>
     private var dispatcher: Task<Void, Never>?
     private var pendingPongs: [MessageId: CheckedContinuation<PongPayload, any Error>] = [:]
+    private var pendingByInvoke: [MessageId: JobInvocationState] = [:]
+    private var invokeByJobId: [JobId: MessageId] = [:]
     private var unhandledContinuation: AsyncStream<Envelope>.Continuation?
+
+    private struct JobInvocationState {
+        var jobId: JobId?
+        var continuation: CheckedContinuation<JobOutcome, any Error>?
+        var progressContinuation: AsyncStream<JobProgressPayload>.Continuation?
+    }
+
+    /// Result of a completed job invocation.
+    public enum JobOutcome: Sendable {
+        case completed(JobCompletedPayload)
+        case failed(ErrorEnvelope)
+        case cancelled(JobCancelledPayload)
+    }
 
     /// Async stream of envelopes the client did not consume internally.
     /// Phase 3+ subsystems (job tracker, stream subscribers, …) will drain
@@ -147,9 +162,43 @@ public actor ARCPClient {
             } else {
                 unhandledContinuation?.yield(envelope)
             }
+        case .jobAccepted(let payload):
+            if let invokeId = envelope.correlationId, var state = pendingByInvoke[invokeId] {
+                state.jobId = payload.jobId
+                pendingByInvoke[invokeId] = state
+                invokeByJobId[payload.jobId] = invokeId
+            }
+        case .jobProgress(let payload):
+            if let jobId = envelope.jobId, let invokeId = invokeByJobId[jobId],
+                let state = pendingByInvoke[invokeId]
+            {
+                state.progressContinuation?.yield(payload)
+            }
+        case .jobCompleted(let payload):
+            if let jobId = envelope.jobId, let invokeId = invokeByJobId.removeValue(forKey: jobId) {
+                resolve(invokeId: invokeId, outcome: .completed(payload))
+            }
+        case .jobFailed(let payload):
+            if let jobId = envelope.jobId, let invokeId = invokeByJobId.removeValue(forKey: jobId) {
+                resolve(invokeId: invokeId, outcome: .failed(payload.error))
+            }
+        case .jobCancelled(let payload):
+            if let jobId = envelope.jobId, let invokeId = invokeByJobId.removeValue(forKey: jobId) {
+                resolve(invokeId: invokeId, outcome: .cancelled(payload))
+            }
+        case .toolError(let payload):
+            if let invokeId = envelope.correlationId, pendingByInvoke[invokeId] != nil {
+                resolve(invokeId: invokeId, outcome: .failed(payload.error))
+            }
         default:
             unhandledContinuation?.yield(envelope)
         }
+    }
+
+    private func resolve(invokeId: MessageId, outcome: JobOutcome) {
+        guard let state = pendingByInvoke.removeValue(forKey: invokeId) else { return }
+        state.progressContinuation?.finish()
+        state.continuation?.resume(returning: outcome)
     }
 
     private func finishUnhandled() {
@@ -224,5 +273,71 @@ public actor ARCPClient {
     public func send(_ envelope: Envelope) async throws {
         let stamped = envelope.sessionId == nil ? envelope.with(sessionId: info.sessionId) : envelope
         try await transport.send(stamped)
+    }
+
+    /// Invocation result: the assigned job id, the terminal outcome, and an
+    /// async stream of progress events that completes alongside the outcome.
+    public struct InvocationResult: Sendable {
+        public let jobId: JobId?
+        public let outcome: JobOutcome
+        public let progress: AsyncStream<JobProgressPayload>
+    }
+
+    /// Invoke a tool. Awaits the terminal `job.completed` / `job.failed` /
+    /// `job.cancelled` envelope and returns it together with a (drained)
+    /// progress stream. RFC §6.3 / §10.
+    public func invoke(
+        tool: String,
+        arguments: JSONValue,
+        idempotencyKey: IdempotencyKey? = nil
+    ) async throws -> InvocationResult {
+        let invokeId = MessageId.random()
+        var progressContinuation: AsyncStream<JobProgressPayload>.Continuation!
+        let progressStream = AsyncStream<JobProgressPayload> { progressContinuation = $0 }
+        pendingByInvoke[invokeId] = JobInvocationState(
+            jobId: nil,
+            continuation: nil,
+            progressContinuation: progressContinuation
+        )
+        let envelope = Envelope(
+            id: invokeId,
+            sessionId: info.sessionId,
+            idempotencyKey: idempotencyKey,
+            payload: .toolInvoke(ToolInvokePayload(tool: tool, arguments: arguments))
+        )
+        try await transport.send(envelope)
+        let outcome: JobOutcome = try await withCheckedThrowingContinuation { cont in
+            attachContinuation(invokeId: invokeId, cont: cont)
+        }
+        return InvocationResult(jobId: nil, outcome: outcome, progress: progressStream)
+    }
+
+    private func attachContinuation(
+        invokeId: MessageId,
+        cont: CheckedContinuation<JobOutcome, any Error>
+    ) {
+        if var state = pendingByInvoke[invokeId] {
+            state.continuation = cont
+            pendingByInvoke[invokeId] = state
+        } else {
+            cont.resume(throwing: ARCPError.internal(detail: "lost invocation \(invokeId)", cause: nil))
+        }
+    }
+
+    /// Send a `cancel` request for a running job.
+    public func cancelJob(_ jobId: JobId, reason: String? = nil, deadlineMs: Int = 5_000) async throws {
+        try await send(
+            Envelope(
+                sessionId: info.sessionId,
+                payload: .cancel(
+                    CancelPayload(
+                        target: .job,
+                        targetId: jobId.rawValue,
+                        reason: reason,
+                        deadlineMs: deadlineMs
+                    )
+                )
+            )
+        )
     }
 }

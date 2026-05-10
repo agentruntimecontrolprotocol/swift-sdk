@@ -13,3 +13,4 @@ DerivedData/
 coverage/
 docs.doccarchive/
 .docc-build/
+.swiftconform/
