@@ -7,9 +7,9 @@ this document to be accurate before tagging `v0.1.0`.
 
 | RFC § | Surface | Status | Notes |
 |---|---|---|---|
-| §6.1 | Envelope (struct + custom `Codable`) | Phase 1 — not implemented | |
-| §6.4 | Idempotency keys (`id`, `idempotency_key`) | Phase 1 — not implemented | |
-| §6.5 | Priority/QoS | Phase 1 — not implemented | Default `normal` |
+| §6.1 | Envelope (struct + custom `Codable`) | Implemented (Phase 1) | `EnvelopeTests` round-trips every variant |
+| §6.4 | Idempotency keys (`id`, `idempotency_key`) | Implemented (Phase 1) | `EventLogTests` |
+| §6.5 | Priority/QoS | Implemented (Phase 1) | Default `normal` enforced on decode |
 | §7   | Capability negotiation | Phase 2 — not implemented | |
 | §8.1 | Four-step handshake | Phase 2 — not implemented | |
 | §8.2 | `bearer` auth | Phase 2 — not implemented | |
@@ -50,18 +50,18 @@ this document to be accurate before tagging `v0.1.0`.
 | §16.1 | `artifact.ref` | Phase 5 — not implemented | |
 | §16.2 | `artifact.put/fetch/release` (inline base64) | Phase 5 — not implemented | |
 | §16.3 | Retention sweep | Phase 5 — not implemented | |
-| §17.1 | Trace propagation (`@TaskLocal`) | Phase 1 — not implemented | |
-| §17.2 | Structured logs via swift-log | Phase 1 — not implemented | |
-| §17.3 | Metrics | Phase 1 — not implemented | |
-| §17.3.1 | Reserved metric names as `static let` | Phase 1 — not implemented | |
-| §18.1 | Error envelope | Phase 1 — not implemented | |
-| §18.2 | Canonical error taxonomy | Phase 1 — not implemented | Enum w/ associated values |
-| §18.3 | Retryability flag (`isRetryable`) | Phase 1 — not implemented | |
+| §17.1 | Trace propagation (`@TaskLocal`) | Implemented (Phase 1) | `Tracing.withTrace` |
+| §17.2 | Structured logs via swift-log | Implemented (Phase 1) | `LogPayload` + `swift-log` Logger |
+| §17.3 | Metrics | Implemented (Phase 1) | `MetricPayload` |
+| §17.3.1 | Reserved metric names as `static let` | Implemented (Phase 1) | `StandardMetric.tokensUsed` etc. |
+| §18.1 | Error envelope | Implemented (Phase 1) | `ErrorEnvelope` |
+| §18.2 | Canonical error taxonomy | Implemented (Phase 1) | `ARCPError` + `ErrorsTests` |
+| §18.3 | Retryability flag (`isRetryable`) | Implemented (Phase 1) | `ErrorsTests.retrySemantics` |
 | §19   | Resume by `after_message_id` | Phase 5 — not implemented | |
 | §19   | Checkpoint-based resume | **Out of scope v0.1** | |
 | §20   | MCP compatibility | Future (parallel concept layer) | |
-| §21   | Extension registry | Phase 1 — not implemented | |
-| §21.3 | Unknown-message handling | Phase 1 — not implemented | |
+| §21   | Extension registry | Implemented (Phase 1) | `ExtensionRegistry` actor |
+| §21.3 | Unknown-message handling | Implemented (Phase 1) | `disposition(forUnknown:optional:)` |
 | §22   | WebSocket transport | Phase 6 — not implemented | `vapor/websocket-kit` |
 | §22   | stdio transport | Phase 6 — not implemented | NDJSON over stdin/stdout |
 | §22   | HTTP/2 transport | **Out of scope v0.1** | |
