@@ -5,7 +5,9 @@
 #   - Third-party actions are pinned to a full commit SHA with a version comment.
 #
 # Platforms: macOS only (Package.swift declares .macOS(.v14); no Linux platform).
-# Swift matrix: floor (6.0, from `// swift-tools-version: 6.0`) + latest stable (6.1).
+# Swift matrix: 6.1 — floor declared by `// swift-tools-version: 6.1`. The full
+# ecosystem (swift-nio, swift-log, swift-certificates, swift-crypto) now
+# requires 6.1+, so the previous 6.0 entry no longer resolves.
 
 name: test
 
@@ -43,7 +45,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [macos-latest]
-        swift: ["6.0", "6.1"]
+        swift: ["6.1"]
     steps:
       - name: Checkout
         uses: actions/checkout@v4

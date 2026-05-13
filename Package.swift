@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.1
 import PackageDescription
 
 let sharedSwiftSettings: [SwiftSetting] = [
@@ -20,10 +20,10 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
         .package(url: "https://github.com/apple/swift-nio.git", from: "2.74.0"),
         .package(url: "https://github.com/vapor/websocket-kit.git", from: "2.15.0"),
-        // Pin under 5.5.0: jwt-kit 5.5.x adds MLDSA support that requires
-        // Swift 6.2+, but the test matrix exercises the declared floor of
-        // swift-tools-version 6.0.
-        .package(url: "https://github.com/vapor/jwt-kit.git", "5.1.0"..<"5.5.0"),
+        // Pin under 5.3.0: jwt-kit 5.3+ adds MLDSA support that pulls in
+        // CryptoKit types only available on Swift 6.2+, but the SDK still
+        // targets Swift 6.1 as the floor.
+        .package(url: "https://github.com/vapor/jwt-kit.git", "5.1.0"..<"5.3.0"),
         .package(url: "https://github.com/stephencelis/SQLite.swift.git", from: "0.15.3"),
         .package(url: "https://github.com/apple/swift-format.git", from: "600.0.0"),
         .package(url: "https://github.com/swiftlang/swift-docc-plugin.git", from: "1.4.0"),
