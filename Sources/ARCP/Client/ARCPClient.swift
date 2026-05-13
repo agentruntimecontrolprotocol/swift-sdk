@@ -329,8 +329,10 @@ public actor ARCPClient {
         try await transport.send(envelope)
         return try await withThrowingTaskGroup(of: PongPayload.self) { group in
             group.addTask { [weak self] in
-                try await withCheckedThrowingContinuation { cont in
-                    Task { await self?.registerPongWaiter(id: id, continuation: cont) }
+                try await withCheckedThrowingContinuation { (cont: CheckedContinuation<PongPayload, Error>) in
+                    Task { [cont] in
+                        await self?.registerPongWaiter(id: id, continuation: cont)
+                    }
                 }
             }
             group.addTask { [weak self] in
