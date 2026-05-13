@@ -329,11 +329,10 @@ public actor ARCPClient {
         try await transport.send(envelope)
         return try await withThrowingTaskGroup(of: PongPayload.self) { group in
             group.addTask { [weak self] in
-                try await withCheckedThrowingContinuation { (cont: CheckedContinuation<PongPayload, Error>) in
-                    Task { [cont] in
-                        await self?.registerPongWaiter(id: id, continuation: cont)
-                    }
+                guard let self = self else {
+                    throw ARCPError.unavailable(reason: "client released", retryAfter: nil)
                 }
+                return try await self.awaitPong(id: id)
             }
             group.addTask { [weak self] in
                 try await Task.sleep(for: timeout)
@@ -348,11 +347,10 @@ public actor ARCPClient {
         }
     }
 
-    private func registerPongWaiter(
-        id: MessageId,
-        continuation: CheckedContinuation<PongPayload, any Error>
-    ) {
-        pendingPongs[id] = continuation
+    private func awaitPong(id: MessageId) async throws -> PongPayload {
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<PongPayload, Error>) in
+            pendingPongs[id] = cont
+        }
     }
 
     private func failPongWaiter(id: MessageId) {
