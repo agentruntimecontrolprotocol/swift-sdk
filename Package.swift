@@ -14,15 +14,6 @@ let package = Package(
     products: [
         .library(name: "ARCP", targets: ["ARCP"]),
         .executable(name: "arcp", targets: ["arcp-cli"]),
-        .executable(name: "sample-01-minimal-session", targets: ["Sample01MinimalSession"]),
-        .executable(name: "sample-02-tool-invoke-progress", targets: ["Sample02ToolInvokeProgress"]),
-        .executable(name: "sample-03-human-input-request", targets: ["Sample03HumanInputRequest"]),
-        .executable(name: "sample-04-permission-challenge", targets: ["Sample04PermissionChallenge"]),
-        .executable(name: "sample-05-observer-subscription", targets: ["Sample05ObserverSubscription"]),
-        .executable(
-            name: "sample-06-relay-human-in-the-loop",
-            targets: ["Sample06RelayHumanInTheLoop"]
-        ),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-log.git", from: "1.6.0"),
@@ -60,42 +51,6 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log"),
             ],
             path: "Sources/arcp-cli",
-            swiftSettings: sharedSwiftSettings
-        ),
-        .executableTarget(
-            name: "Sample01MinimalSession",
-            dependencies: ["ARCP"],
-            path: "Samples/01-MinimalSession",
-            swiftSettings: sharedSwiftSettings
-        ),
-        .executableTarget(
-            name: "Sample02ToolInvokeProgress",
-            dependencies: ["ARCP"],
-            path: "Samples/02-ToolInvokeWithProgress",
-            swiftSettings: sharedSwiftSettings
-        ),
-        .executableTarget(
-            name: "Sample03HumanInputRequest",
-            dependencies: ["ARCP"],
-            path: "Samples/03-HumanInputRequest",
-            swiftSettings: sharedSwiftSettings
-        ),
-        .executableTarget(
-            name: "Sample04PermissionChallenge",
-            dependencies: ["ARCP"],
-            path: "Samples/04-PermissionChallenge",
-            swiftSettings: sharedSwiftSettings
-        ),
-        .executableTarget(
-            name: "Sample05ObserverSubscription",
-            dependencies: ["ARCP"],
-            path: "Samples/05-ObserverSubscription",
-            swiftSettings: sharedSwiftSettings
-        ),
-        .executableTarget(
-            name: "Sample06RelayHumanInTheLoop",
-            dependencies: ["ARCP"],
-            path: "Samples/06-RelayHumanInTheLoop",
             swiftSettings: sharedSwiftSettings
         ),
         .testTarget(
