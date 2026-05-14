@@ -1,0 +1,15 @@
+digraph ARCPTargets {
+  graph [rankdir=LR, fontname="Inter"]
+  node  [shape=box, style=rounded, fontname="Inter"]
+  edge  [fontname="Inter"]
+
+  ARCPCore
+  ARCPClient       -> ARCPCore
+  ARCPRuntime      -> ARCPCore
+  ARCP             -> ARCPClient
+  ARCP             -> ARCPRuntime
+  ARCPVapor        -> ARCPRuntime
+  ARCPHummingbird  -> ARCPRuntime
+  ARCPNIO          -> ARCPRuntime
+  ARCPOTel         -> ARCPRuntime
+}

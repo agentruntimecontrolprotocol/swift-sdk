@@ -1,0 +1,20 @@
+digraph ARCPJobFSM {
+  graph [rankdir=LR, fontname="Inter"]
+  node  [shape=box, style=rounded, fontname="Inter"]
+  edge  [fontname="Inter"]
+
+  pending   -> running    [label="job.accepted"]
+  running   -> success    [label="job.result"]
+  running   -> error      [label="job.error"]
+  running   -> cancelled  [label="job.cancel"]
+  running   -> timed_out  [label="max_runtime_sec"]
+
+  // v1.1 additions on existing edges (error edges dashed red, blue labels)
+  running   -> error      [label="LEASE_EXPIRED",    color="#D1242F", fontcolor="#1F6FEB", style=dashed]
+  running   -> error      [label="BUDGET_EXHAUSTED", color="#D1242F", fontcolor="#1F6FEB", style=dashed]
+
+  // v1.1 side effects on running (not state changes)
+  subscriber [shape=ellipse, color="#1F6FEB", fontcolor="#1F6FEB"]
+  subscriber -> running   [label="job.subscribe",                                color="#1F6FEB", fontcolor="#1F6FEB"]
+  running   -> running    [label="lease_constraints.expires_at check (§9.5)",    color="#1F6FEB", fontcolor="#1F6FEB"]
+}
