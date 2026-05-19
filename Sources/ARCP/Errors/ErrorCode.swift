@@ -25,6 +25,12 @@ public enum ErrorCode: String, Sendable, Hashable, Codable, CaseIterable {
     case leaseExpired = "LEASE_EXPIRED"
     case leaseRevoked = "LEASE_REVOKED"
     case backpressureOverflow = "BACKPRESSURE_OVERFLOW"
+    /// `BUDGET_EXHAUSTED` — a `cost.budget` counter reached its maximum
+    /// (ARCP v1.1 §12; §9.6).
+    case budgetExhausted = "BUDGET_EXHAUSTED"
+    /// `AGENT_VERSION_NOT_AVAILABLE` — `job.submit` named an
+    /// `agent@version` the runtime does not have (ARCP v1.1 §12; §7.5).
+    case agentVersionNotAvailable = "AGENT_VERSION_NOT_AVAILABLE"
 
     /// True if a typical client should retry. RFC §18.3.
     public var isRetryableByDefault: Bool {

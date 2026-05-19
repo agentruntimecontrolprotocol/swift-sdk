@@ -64,6 +64,14 @@ public enum ARCPError: Error, Sendable {
     /// Stream or subscription dropped due to overflow (RFC §11.2 / §13.4).
     case backpressureOverflow(streamOrSubscription: String, dropped: Int)
 
+    /// A `cost.budget` capability counter reached its maximum
+    /// (ARCP v1.1 §12; §9.6).
+    case budgetExhausted(detail: String)
+
+    /// `job.submit` named an `agent@version` the runtime does not have
+    /// (ARCP v1.1 §12; §7.5).
+    case agentVersionNotAvailable(agent: String, version: String)
+
     /// Catch-all unknown error; avoid in favor of a specific case.
     case unknown(message: String)
 }
@@ -90,6 +98,8 @@ extension ARCPError {
         case .leaseExpired: return .leaseExpired
         case .leaseRevoked: return .leaseRevoked
         case .backpressureOverflow: return .backpressureOverflow
+        case .budgetExhausted: return .budgetExhausted
+        case .agentVersionNotAvailable: return .agentVersionNotAvailable
         case .unknown: return .unknown
         }
     }
@@ -147,6 +157,10 @@ extension ARCPError {
             return "Lease \(leaseId) revoked: \(reason)"
         case .backpressureOverflow(let target, let dropped):
             return "Backpressure overflow on \(target); dropped \(dropped)"
+        case .budgetExhausted(let detail):
+            return "Budget exhausted: \(detail)"
+        case .agentVersionNotAvailable(let agent, let version):
+            return "Agent version not available: \(agent)@\(version)"
         case .unknown(let message):
             return message
         }
@@ -176,6 +190,8 @@ extension ARCPError {
             return ["lease_id": .string(leaseId.rawValue), "reason": .string(reason)]
         case .backpressureOverflow(let target, let dropped):
             return ["target": .string(target), "dropped": .int(Int64(dropped))]
+        case .agentVersionNotAvailable(let agent, let version):
+            return ["agent": .string(agent), "version": .string(version)]
         case .invalidArgument(let field, _), .outOfRange(let field, _):
             return ["field": .string(field)]
         case .notFound(let kind, let id), .alreadyExists(let kind, let id):

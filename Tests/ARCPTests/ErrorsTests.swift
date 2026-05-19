@@ -29,7 +29,49 @@ struct ErrorsTests {
         #expect(
             ARCPError.backpressureOverflow(streamOrSubscription: "x", dropped: 1).code
                 == .backpressureOverflow)
+        #expect(ARCPError.budgetExhausted(detail: "x").code == .budgetExhausted)
+        #expect(
+            ARCPError.agentVersionNotAvailable(agent: "a", version: "1.0.0").code
+                == .agentVersionNotAvailable)
         #expect(ARCPError.unknown(message: "x").code == .unknown)
+    }
+
+    @Test("v1.1 error codes serialize to canonical wire strings (§12)")
+    func v11WireStrings() throws {
+        #expect(ErrorCode.budgetExhausted.rawValue == "BUDGET_EXHAUSTED")
+        #expect(ErrorCode.leaseExpired.rawValue == "LEASE_EXPIRED")
+        #expect(ErrorCode.agentVersionNotAvailable.rawValue == "AGENT_VERSION_NOT_AVAILABLE")
+
+        let encoder = Envelope.makeEncoder()
+        let decoder = Envelope.makeDecoder()
+        for code in [
+            ErrorCode.budgetExhausted, .leaseExpired, .agentVersionNotAvailable,
+        ] {
+            let data = try encoder.encode(code)
+            let decoded = try decoder.decode(ErrorCode.self, from: data)
+            #expect(decoded == code)
+        }
+
+        let budgetData = "\"BUDGET_EXHAUSTED\"".data(using: .utf8)!
+        #expect(try decoder.decode(ErrorCode.self, from: budgetData) == .budgetExhausted)
+        let agentData = "\"AGENT_VERSION_NOT_AVAILABLE\"".data(using: .utf8)!
+        #expect(try decoder.decode(ErrorCode.self, from: agentData) == .agentVersionNotAvailable)
+    }
+
+    @Test("v1.1 ARCPError variants are non-retryable by default")
+    func v11RetrySemantics() {
+        #expect(ARCPError.budgetExhausted(detail: "USD <= 0").isRetryable == false)
+        #expect(
+            ARCPError.agentVersionNotAvailable(agent: "summarizer", version: "2.3.0").isRetryable
+                == false)
+    }
+
+    @Test("AgentVersionNotAvailable details carry agent + version")
+    func agentVersionDetails() {
+        let err = ARCPError.agentVersionNotAvailable(agent: "summarizer", version: "2.3.0")
+        let details = err.details
+        #expect(details["agent"] == .string("summarizer"))
+        #expect(details["version"] == .string("2.3.0"))
     }
 
     @Test("Retry semantics align with RFC §18.3")
