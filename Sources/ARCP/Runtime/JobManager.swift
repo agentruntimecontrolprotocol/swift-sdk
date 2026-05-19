@@ -16,6 +16,10 @@ public actor JobManager {
     private let rawSend: @Sendable (Envelope) async throws -> Void
     private var handlers: [String: any ToolHandler] = [:]
     private var jobs: [JobId: JobRecord] = [:]
+    /// Optional advertised agent inventory (ARCP v1.1 §7.5). When set, the
+    /// runtime validates `agent@version` references on `tool.invoke` against
+    /// it and surfaces `agentVersionNotAvailable` for unknown pins.
+    public var agentInventory: AgentInventory?
 
     private func send(_ envelope: Envelope) async throws {
         if let jid = envelope.jobId, var record = jobs[jid] {
@@ -56,6 +60,12 @@ public actor JobManager {
         handlers[handler.name] = handler
     }
 
+    /// Configure the advertised agent inventory used to validate
+    /// `agent@version` references on `tool.invoke` (ARCP v1.1 §7.5).
+    public func setAgentInventory(_ inventory: AgentInventory?) {
+        self.agentInventory = inventory
+    }
+
     /// Snapshot of currently-tracked job ids and their states.
     public var snapshot: [(JobId, JobState)] {
         jobs.map { ($0.key, $0.value.state) }
@@ -63,8 +73,42 @@ public actor JobManager {
 
     /// Handle a `tool.invoke` envelope. Spawns a child Task to run the handler.
     public func handleToolInvoke(envelope: Envelope, payload: ToolInvokePayload) async throws {
-        guard let handler = handlers[payload.tool] else {
-            try await send(
+        // Parse the tool/agent identifier per ARCP v1.1 §7.5. Bare names and
+        // `name@version` are both accepted; an unparseable identifier falls
+        // through to a notFound error.
+        let agentRef: AgentRef
+        if let parsed = try? AgentRef.parse(payload.tool) {
+            agentRef = parsed
+        } else {
+            agentRef = AgentRef(name: payload.tool, version: nil)
+        }
+
+        // §7.5: validate `name@version` references against the advertised
+        // inventory (if one was configured). Bare names defer to the runtime
+        // default and are not rejected here.
+        if let inventory = agentInventory,
+            agentRef.version != nil,
+            !inventory.satisfies(agentRef)
+        {
+            try await rawSend(
+                Envelope(
+                    sessionId: sessionId,
+                    correlationId: envelope.id,
+                    payload: .toolError(
+                        ToolErrorPayload(
+                            error: ARCPError.agentVersionNotAvailable(
+                                agent: agentRef.name,
+                                version: agentRef.version ?? ""
+                            ).toEnvelope()
+                        )
+                    )
+                )
+            )
+            return
+        }
+
+        guard let handler = handlers[agentRef.name] else {
+            try await rawSend(
                 Envelope(
                     sessionId: sessionId,
                     correlationId: envelope.id,
@@ -90,7 +134,7 @@ public actor JobManager {
             jobId: jobId,
             invokeId: envelope.id,
             traceId: envelope.traceId,
-            agent: payload.tool,
+            agent: agentRef.wire,
             createdAt: Date(),
             parentJobId: nil,
             state: .accepted

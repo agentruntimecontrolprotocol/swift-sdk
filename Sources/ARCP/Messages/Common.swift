@@ -19,6 +19,9 @@ public struct Capabilities: Sendable, Codable, Hashable {
     public var artifactRetention: ArtifactRetention?
     public var extensions: [String]
     public var extras: [String: Bool]
+    /// Runtime-side advertisement of available agents (ARCP v1.1 §7.5).
+    /// Accepts both v1.0 flat-name and v1.1 rich shapes.
+    public var agents: AgentInventory?
 
     public init(
         streaming: Bool = false,
@@ -37,7 +40,8 @@ public struct Capabilities: Sendable, Codable, Hashable {
         binaryEncoding: [BinaryEncoding] = [.base64],
         artifactRetention: ArtifactRetention? = nil,
         extensions: [String] = [],
-        extras: [String: Bool] = [:]
+        extras: [String: Bool] = [:],
+        agents: AgentInventory? = nil
     ) {
         self.streaming = streaming
         self.durableJobs = durableJobs
@@ -56,6 +60,7 @@ public struct Capabilities: Sendable, Codable, Hashable {
         self.artifactRetention = artifactRetention
         self.extensions = extensions
         self.extras = extras
+        self.agents = agents
     }
 
     public enum HeartbeatRecovery: String, Sendable, Codable, Hashable {
@@ -87,7 +92,7 @@ public struct Capabilities: Sendable, Codable, Hashable {
         "streaming", "durable_jobs", "checkpoints", "binary_streams", "agent_handoff",
         "human_input", "artifacts", "subscriptions", "scheduled_jobs", "anonymous",
         "interrupt", "heartbeat_recovery", "heartbeat_interval_seconds", "binary_encoding",
-        "artifact_retention", "extensions",
+        "artifact_retention", "extensions", "agents",
     ]
 
     private struct DynamicKey: CodingKey {
@@ -138,6 +143,10 @@ public struct Capabilities: Sendable, Codable, Hashable {
                 [String].self,
                 forKey: DynamicKey(stringValue: "extensions")
             )) ?? nil) ?? []
+        self.agents = try container.decodeIfPresent(
+            AgentInventory.self,
+            forKey: DynamicKey(stringValue: "agents")
+        )
         var extras: [String: Bool] = [:]
         for key in container.allKeys where !Self.knownKeys.contains(key.stringValue) {
             if let value = try? container.decode(Bool.self, forKey: key) {
@@ -171,6 +180,7 @@ public struct Capabilities: Sendable, Codable, Hashable {
             forKey: DynamicKey(stringValue: "artifact_retention")
         )
         try container.encode(extensions, forKey: DynamicKey(stringValue: "extensions"))
+        try container.encodeIfPresent(agents, forKey: DynamicKey(stringValue: "agents"))
         for (key, value) in extras {
             try container.encode(value, forKey: DynamicKey(stringValue: key))
         }

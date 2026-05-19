@@ -89,6 +89,7 @@ public actor ARCPRuntime {
         for handler in registeredHandlers {
             await jobManager.register(handler)
         }
+        await jobManager.setAgentInventory(supportedCapabilities.agents)
         jobManagers[info.sessionId] = jobManager
         log.info("session opened", metadata: ["session": "\(info.sessionId)"])
         await dispatchLoop(transport: transport, mailbox: mailbox, info: info, jobManager: jobManager)
