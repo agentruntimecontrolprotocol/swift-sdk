@@ -656,6 +656,29 @@ struct ConcreteJobContext: JobContext, Sendable {
         )
     }
 
+    /// Concrete override emitting the §8.2.1 fields directly on the wire.
+    func reportProgress(
+        current: Double,
+        total: Double? = nil,
+        units: String? = nil,
+        message: String? = nil
+    ) async throws {
+        try await sendEnvelope(
+            Envelope(
+                sessionId: sessionId,
+                jobId: jobId,
+                payload: .jobProgress(
+                    JobProgressPayload(
+                        current: current,
+                        total: total,
+                        units: units,
+                        message: message
+                    )
+                )
+            )
+        )
+    }
+
     func openStream(
         kind: StreamKind,
         contentType: String?,

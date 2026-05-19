@@ -78,16 +78,48 @@ public struct JobStartedPayload: Sendable, Codable, Hashable {
     }
 }
 
-/// `job.progress` payload. RFC §10.1.
+/// `job.progress` payload. RFC §10.1 / v1.1 §8.2.1.
+///
+/// Carries the structured progress body defined in ARCP v1.1 §8.2.1:
+/// - `current` — non-negative count of completed units.
+/// - `total` — optional total; absent means indeterminate.
+/// - `units` — optional unit label, e.g. `"files"`, `"tokens"`.
+/// - `message` — optional human-readable status line.
+///
+/// `percent` and `attributes` are retained for backwards-compatibility with
+/// earlier drafts that did not surface a structured body. New emitters
+/// SHOULD populate `current` / `total` / `units` per §8.2.1.
 public struct JobProgressPayload: Sendable, Codable, Hashable {
+    public var current: Double?
+    public var total: Double?
+    public var units: String?
     public var percent: Double?
     public var message: String?
     public var attributes: [String: JSONValue]?
 
-    public init(percent: Double? = nil, message: String? = nil, attributes: [String: JSONValue]? = nil) {
+    public init(
+        current: Double? = nil,
+        total: Double? = nil,
+        units: String? = nil,
+        percent: Double? = nil,
+        message: String? = nil,
+        attributes: [String: JSONValue]? = nil
+    ) {
+        self.current = current
+        self.total = total
+        self.units = units
         self.percent = percent
         self.message = message
         self.attributes = attributes
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case current
+        case total
+        case units
+        case percent
+        case message
+        case attributes
     }
 }
 

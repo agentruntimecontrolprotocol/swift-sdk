@@ -12,6 +12,16 @@ public protocol JobContext: Sendable {
         async
         throws
 
+    /// Emit `job.progress` with the v1.1 §8.2.1 structured body
+    /// (`current` / `total` / `units` / `message`). `total` may be omitted
+    /// when the work is indeterminate.
+    func reportProgress(
+        current: Double,
+        total: Double?,
+        units: String?,
+        message: String?
+    ) async throws
+
     /// Open a fresh stream and return a `StreamHandle` for sending chunks.
     /// RFC §11.
     func openStream(
@@ -54,6 +64,41 @@ public protocol JobContext: Sendable {
         reason: String?,
         leaseSeconds: Int
     ) async throws -> LeaseId
+}
+
+extension JobContext {
+    /// Emit `job.progress` with the v1.1 §8.2.1 structured body.
+    ///
+    /// - Parameters:
+    ///   - current: Non-negative count of completed units of work.
+    ///   - total: Optional total; absent means indeterminate.
+    ///   - units: Optional unit label, e.g. `"files"`, `"tokens"`.
+    ///   - message: Optional human-readable status line.
+    public func reportProgress(
+        current: Double,
+        total: Double? = nil,
+        units: String? = nil,
+        message: String? = nil
+    ) async throws {
+        // Default routing: pack v1.1 fields into the legacy attributes bag so
+        // implementations that have not adopted the structured fields still
+        // observe the data. Concrete contexts (e.g. ConcreteJobContext) MAY
+        // override to emit `current`/`total`/`units` as first-class fields
+        // on the wire per §8.2.1.
+        var attrs: [String: JSONValue] = [:]
+        attrs["current"] = .double(current)
+        if let total { attrs["total"] = .double(total) }
+        if let units { attrs["units"] = .string(units) }
+        var derivedPercent: Double?
+        if let total, total > 0 {
+            derivedPercent = (current / total) * 100.0
+        }
+        try await reportProgress(
+            percent: derivedPercent,
+            message: message,
+            attributes: attrs
+        )
+    }
 }
 
 /// Handle returned by `JobContext.openStream` for emitting chunks until close.
