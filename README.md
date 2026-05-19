@@ -74,33 +74,10 @@ swift package generate-documentation --target ARCP
 
 ## Architecture
 
-```
-+------------------------------------------------------------+
-|                     ARCPRuntime  (server)                  |
-|  +------------+  +-------------+  +--------------------+   |
-|  | EventLog   |  | Subscription|  | ArtifactStore      |   |
-|  | (SQLite)   |  | Manager     |  | (SQLite blobs)     |   |
-|  +------------+  +-------------+  +--------------------+   |
-|  Per-session:                                              |
-|    JobManager  →  StreamManager, LeaseManager,             |
-|                   PendingRegistry × {HITL, choice, perm}   |
-|  Auth:           BearerAuthValidator | JWTAuthValidator    |
-+------------------------------------------------------------+
-                            |
-                            | Envelope (RFC §6.1, JSON)
-                            v
-+------------------------------------------------------------+
-|              Transport (RFC §22 — Sendable)                |
-|  MemoryTransport (tests)  StdioTransport  WebSocketTransport
-+------------------------------------------------------------+
-                            |
-                            v
-+------------------------------------------------------------+
-|                     ARCPClient  (client)                   |
-|  invoke(), ping(), send(); HumanInputHandler,              |
-|  PermissionHandler — async dispatch via Mailbox actor.     |
-+------------------------------------------------------------+
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/architecture-dark.svg">
+  <img alt="ARCP Swift SDK architecture — ARCPClient and ARCPRuntime exchange Envelopes (RFC §6.1) over Memory/Stdio/WebSocket transports; the runtime hosts the SQLite EventLog, SubscriptionManager, SQLite ArtifactStore, per-session JobManager + PendingRegistry, and Bearer/JWT auth" src="docs/diagrams/architecture-light.svg">
+</picture>
 
 State diagrams for sessions, jobs, streams, subscriptions, and leases live in
 [`PLAN.md`](PLAN.md) §6.
