@@ -13,9 +13,17 @@ public actor JobManager {
     public let cancelDeadline: TimeInterval
 
     private let log: Logger
-    private let send: @Sendable (Envelope) async throws -> Void
+    private let rawSend: @Sendable (Envelope) async throws -> Void
     private var handlers: [String: any ToolHandler] = [:]
     private var jobs: [JobId: JobRecord] = [:]
+
+    private func send(_ envelope: Envelope) async throws {
+        if let jid = envelope.jobId, var record = jobs[jid] {
+            record.lastEventSeq &+= 1
+            jobs[jid] = record
+        }
+        try await rawSend(envelope)
+    }
     private let streamManager: StreamManager
     public let humanInputRegistry = PendingRegistry<HumanInputResponsePayload>()
     public let humanChoiceRegistry = PendingRegistry<HumanChoiceResponsePayload>()
@@ -37,7 +45,7 @@ public actor JobManager {
         self.sessionId = sessionId
         self.heartbeatInterval = heartbeatInterval
         self.cancelDeadline = cancelDeadline
-        self.send = send
+        self.rawSend = send
         self.streamManager = StreamManager(sessionId: sessionId, send: send)
         self.leaseManager = LeaseManager(sessionId: sessionId, send: send)
         self.log = Logger(label: "arcp.jobs.\(sessionId)")
@@ -82,6 +90,9 @@ public actor JobManager {
             jobId: jobId,
             invokeId: envelope.id,
             traceId: envelope.traceId,
+            agent: payload.tool,
+            createdAt: Date(),
+            parentJobId: nil,
             state: .accepted
         )
         jobs[jobId] = record
@@ -508,11 +519,64 @@ public actor JobManager {
         let jobId: JobId
         let invokeId: MessageId
         let traceId: TraceId?
+        let agent: String
+        let createdAt: Date
+        let parentJobId: JobId?
         var state: JobState
         var cancelRequested: Bool = false
         var cancelReason: String?
+        var lastEventSeq: UInt64 = 0
         var runTask: Task<Void, Never>?
         var heartbeatTask: Task<Void, Never>?
+    }
+
+    /// Build a read-only inventory of jobs known to this session.
+    /// ARCP v1.1 §6.6.
+    public func listJobs(
+        filter: SessionListJobsFilter?,
+        limit: Int?,
+        cursor: String?
+    ) -> (entries: [JobListEntry], nextCursor: String?) {
+        var entries: [JobListEntry] = jobs.values.map { record in
+            JobListEntry(
+                jobId: record.jobId,
+                agent: record.agent,
+                status: record.state.rawValue,
+                parentJobId: record.parentJobId,
+                createdAt: record.createdAt,
+                traceId: record.traceId?.rawValue,
+                lastEventSeq: record.lastEventSeq
+            )
+        }
+        // Apply filter.
+        if let filter {
+            if !filter.status.isEmpty {
+                entries = entries.filter { filter.status.contains($0.status) }
+            }
+            if let agent = filter.agent {
+                entries = entries.filter { $0.agent == agent }
+            }
+            if let after = filter.createdAfter {
+                entries = entries.filter { $0.createdAt > after }
+            }
+            if let before = filter.createdBefore {
+                entries = entries.filter { $0.createdAt < before }
+            }
+        }
+        // Deterministic order: oldest first.
+        entries.sort { $0.createdAt < $1.createdAt }
+        // Cursor is the index into the filtered/sorted list, as a string.
+        let start: Int
+        if let cursor, let parsed = Int(cursor), parsed >= 0, parsed <= entries.count {
+            start = parsed
+        } else {
+            start = 0
+        }
+        let pageSize = max(1, limit ?? entries.count)
+        let end = min(entries.count, start + pageSize)
+        let page = Array(entries[start..<end])
+        let nextCursor: String? = end < entries.count ? String(end) : nil
+        return (page, nextCursor)
     }
 }
 

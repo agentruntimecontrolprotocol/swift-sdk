@@ -310,6 +310,15 @@ public actor ARCPRuntime {
         case .resume(let payload):
             try await handleResume(envelope: envelope, payload: payload, info: info, transport: transport)
             return false
+        case .sessionListJobs(let payload):
+            try await handleListJobs(
+                envelope: envelope,
+                payload: payload,
+                info: info,
+                jobManager: jobManager,
+                transport: transport
+            )
+            return false
         case .log, .metric, .traceSpan, .eventEmit:
             // Telemetry from the client side is logged & persisted only.
             return false
@@ -399,6 +408,33 @@ public actor ARCPRuntime {
                 payload: .artifactRef(
                     ArtifactRefPayload(ref: ref, data: data.base64EncodedString())
                 )
+            ),
+            transport: transport
+        )
+    }
+
+    private func handleListJobs(
+        envelope: Envelope,
+        payload: SessionListJobsPayload,
+        info: SessionInfo,
+        jobManager: JobManager,
+        transport: any Transport
+    ) async throws {
+        let (entries, nextCursor) = await jobManager.listJobs(
+            filter: payload.filter,
+            limit: payload.limit,
+            cursor: payload.cursor
+        )
+        let response = SessionJobsPayload(
+            requestId: envelope.id.rawValue,
+            jobs: entries,
+            nextCursor: nextCursor
+        )
+        try await send(
+            Envelope(
+                sessionId: info.sessionId,
+                correlationId: envelope.id,
+                payload: .sessionJobs(response)
             ),
             transport: transport
         )

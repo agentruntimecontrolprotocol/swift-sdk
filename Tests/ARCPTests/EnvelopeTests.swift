@@ -164,6 +164,33 @@ let roundTripFixtures: [RoundTripFixture] = [
     .init(payload: .sessionRefresh(SessionRefreshPayload(deadlineMs: 30_000))),
     .init(payload: .sessionEvicted(SessionEvictedPayload(reason: "idle", code: .deadlineExceeded))),
     .init(payload: .sessionClose(SessionClosePayload(reason: "done"))),
+    .init(
+        payload: .sessionListJobs(
+            SessionListJobsPayload(
+                filter: SessionListJobsFilter(status: ["running"], agent: "code-refactor"),
+                limit: 100,
+                cursor: nil
+            )
+        )
+    ),
+    .init(
+        payload: .sessionJobs(
+            SessionJobsPayload(
+                requestId: "01J_REQ",
+                jobs: [
+                    JobListEntry(
+                        jobId: JobId("job_a"),
+                        agent: "code-refactor@2.0.0",
+                        status: "running",
+                        createdAt: now,
+                        traceId: "4bf92f",
+                        lastEventSeq: 1822
+                    )
+                ],
+                nextCursor: nil
+            )
+        )
+    ),
     .init(payload: .ping(PingPayload(nonce: "p"))),
     .init(payload: .pong(PongPayload(nonce: "p"))),
     .init(payload: .ack(AckPayload(detail: "ok"))),

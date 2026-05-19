@@ -19,6 +19,8 @@ public enum MessageType: Sendable, Hashable {
     case sessionRefresh(SessionRefreshPayload)
     case sessionEvicted(SessionEvictedPayload)
     case sessionClose(SessionClosePayload)
+    case sessionListJobs(SessionListJobsPayload)
+    case sessionJobs(SessionJobsPayload)
 
     // Control (RFC §6.2 / §10.4 / §10.5 / §11.2 / §19)
     case ping(PingPayload)
@@ -104,6 +106,8 @@ extension MessageType {
         case .sessionRefresh: return "session.refresh"
         case .sessionEvicted: return "session.evicted"
         case .sessionClose: return "session.close"
+        case .sessionListJobs: return "session.list_jobs"
+        case .sessionJobs: return "session.jobs"
         case .ping: return "ping"
         case .pong: return "pong"
         case .ack: return "ack"
@@ -169,6 +173,8 @@ extension MessageType {
         case .sessionRefresh(let value): try value.encode(to: encoder)
         case .sessionEvicted(let value): try value.encode(to: encoder)
         case .sessionClose(let value): try value.encode(to: encoder)
+        case .sessionListJobs(let value): try value.encode(to: encoder)
+        case .sessionJobs(let value): try value.encode(to: encoder)
         case .ping(let value): try value.encode(to: encoder)
         case .pong(let value): try value.encode(to: encoder)
         case .ack(let value): try value.encode(to: encoder)
@@ -243,6 +249,10 @@ extension MessageType {
             return .sessionEvicted(try SessionEvictedPayload(from: decoder))
         case "session.close":
             return .sessionClose(try SessionClosePayload(from: decoder))
+        case "session.list_jobs":
+            return .sessionListJobs(try SessionListJobsPayload(from: decoder))
+        case "session.jobs":
+            return .sessionJobs(try SessionJobsPayload(from: decoder))
         case "ping":
             return .ping(try PingPayload(from: decoder))
         case "pong":
