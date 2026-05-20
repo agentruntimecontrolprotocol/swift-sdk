@@ -121,6 +121,28 @@ public actor JobManager {
             )
             return
         }
+        // §9.5: lease_constraints.expires_at must be in the future at
+        // submission time. Past or invalid values surface as
+        // INVALID_REQUEST (invalidArgument) BEFORE the job is accepted.
+        if let constraints = payload.leaseConstraints,
+            constraints.expiresAt <= Date()
+        {
+            try await rawSend(
+                Envelope(
+                    sessionId: sessionId,
+                    correlationId: envelope.id,
+                    payload: .toolError(
+                        ToolErrorPayload(
+                            error: ARCPError.invalidArgument(
+                                field: "lease_constraints.expires_at",
+                                detail: "must be in the future"
+                            ).toEnvelope()
+                        )
+                    )
+                )
+            )
+            return
+        }
         let jobId = JobId.random()
         try await send(
             Envelope(
@@ -137,7 +159,8 @@ public actor JobManager {
             agent: agentRef.wire,
             createdAt: Date(),
             parentJobId: nil,
-            state: .accepted
+            state: .accepted,
+            leaseExpiresAt: payload.leaseConstraints?.expiresAt
         )
         jobs[jobId] = record
 
@@ -148,6 +171,12 @@ public actor JobManager {
             idempotencyKey: envelope.idempotencyKey,
             traceId: envelope.traceId
         )
+        let budgetTracker: BudgetTracker = {
+            if let cb = payload.costBudget, !cb.isEmpty {
+                return BudgetTracker(budget: cb)
+            }
+            return BudgetTracker()
+        }()
         let context = ConcreteJobContext(
             jobId: jobId,
             sessionId: sessionId,
@@ -157,7 +186,10 @@ public actor JobManager {
             isCancelledProvider: { [weak self] in
                 guard let self else { return false }
                 return await self.isCancelled(jobId: jobId)
-            }
+            },
+            leaseExpiresAt: payload.leaseConstraints?.expiresAt,
+            budget: budgetTracker,
+            invokeCorrelationId: envelope.id
         )
 
         let runTask = Task { [weak self] in
@@ -532,6 +564,8 @@ public actor JobManager {
         case .value(let value): return JobCompletedPayload(result: value)
         case .ref(let ref): return JobCompletedPayload(resultRef: ref)
         case .empty: return JobCompletedPayload()
+        case .streamed(let resultId, let size, let summary):
+            return JobCompletedPayload(resultId: resultId, resultSize: size, summary: summary)
         }
     }
 
@@ -767,6 +801,30 @@ struct ConcreteJobContext: JobContext, Sendable {
             reason: reason,
             leaseSeconds: leaseSeconds,
             timeout: .seconds(300)
+        )
+    }
+
+    func emitResultChunk(
+        resultId: String,
+        chunkSeq: UInt64,
+        data: String,
+        encoding: ResultChunkEncoding,
+        more: Bool
+    ) async throws {
+        try await sendEnvelope(
+            Envelope(
+                sessionId: sessionId,
+                jobId: jobId,
+                payload: .jobResultChunk(
+                    JobResultChunkPayload(
+                        resultId: resultId,
+                        chunkSeq: chunkSeq,
+                        data: data,
+                        encoding: encoding,
+                        more: more
+                    )
+                )
+            )
         )
     }
 }

@@ -40,9 +40,16 @@ public struct ToolInvocation: Sendable {
     }
 }
 
-/// Successful tool result. `ref` is for non-inlined (artifact-backed) results.
+/// Successful tool result. `ref` is for non-inlined (artifact-backed)
+/// results; `streamed` is for results delivered as a sequence of
+/// `job.result_chunk` events (ARCP v1.1 §8.4), where the terminating
+/// `job.completed` carries `resultId` / `resultSize` / `summary`
+/// markers instead of an inline value.
 public enum ToolOutput: Sendable {
     case value(JSONValue)
     case ref(ArtifactRef)
     case empty
+    /// Result was streamed as `job.result_chunk` events; the terminal
+    /// `job.completed` envelope references the same `resultId`.
+    case streamed(resultId: String, size: UInt64?, summary: String?)
 }

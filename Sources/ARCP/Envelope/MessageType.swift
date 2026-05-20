@@ -45,6 +45,7 @@ public enum MessageType: Sendable, Hashable {
     case jobCompleted(JobCompletedPayload)
     case jobFailed(JobFailedPayload)
     case jobCancelled(JobCancelledPayload)
+    case jobResultChunk(JobResultChunkPayload)
 
     // Streaming (RFC §11)
     case streamOpen(StreamOpenPayload)
@@ -128,6 +129,7 @@ extension MessageType {
         case .jobCompleted: return "job.completed"
         case .jobFailed: return "job.failed"
         case .jobCancelled: return "job.cancelled"
+        case .jobResultChunk: return "job.result_chunk"
         case .streamOpen: return "stream.open"
         case .streamChunk: return "stream.chunk"
         case .streamClose: return "stream.close"
@@ -195,6 +197,7 @@ extension MessageType {
         case .jobCompleted(let value): try value.encode(to: encoder)
         case .jobFailed(let value): try value.encode(to: encoder)
         case .jobCancelled(let value): try value.encode(to: encoder)
+        case .jobResultChunk(let value): try value.encode(to: encoder)
         case .streamOpen(let value): try value.encode(to: encoder)
         case .streamChunk(let value): try value.encode(to: encoder)
         case .streamClose(let value): try value.encode(to: encoder)
@@ -293,6 +296,8 @@ extension MessageType {
             return .jobFailed(try JobFailedPayload(from: decoder))
         case "job.cancelled":
             return .jobCancelled(try JobCancelledPayload(from: decoder))
+        case "job.result_chunk":
+            return .jobResultChunk(try JobResultChunkPayload(from: decoder))
         case "stream.open":
             return .streamOpen(try StreamOpenPayload(from: decoder))
         case "stream.chunk":

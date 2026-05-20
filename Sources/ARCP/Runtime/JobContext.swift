@@ -6,6 +6,32 @@ public protocol JobContext: Sendable {
     var jobId: JobId { get }
     var sessionId: SessionId { get }
 
+    /// The `lease_constraints.expires_at` declared on `tool.invoke`,
+    /// if any (ARCP v1.1 §9.5). `nil` means the lease has no expiry.
+    var leaseExpiresAt: Date? { get }
+
+    /// Throw ``ARCPError/leaseExpired(leaseId:expiredAt:)`` when the
+    /// lease's `expires_at` has elapsed (ARCP v1.1 §9.5). No-op when
+    /// the lease has no expiry. Handlers SHOULD invoke this before
+    /// each authority-bearing operation.
+    func checkLeaseExpiration() throws
+
+    /// Per-job `cost.budget` tracker (ARCP v1.1 §9.6). Always present;
+    /// the tracker is empty when no `cost_budget` was supplied on
+    /// `tool.invoke`. Use ``charge(name:amount:currency:)`` to report
+    /// cost and have the runtime decrement counters.
+    var budget: BudgetTracker { get }
+
+    /// Charge `amount` against the `currency` counter and emit a
+    /// matching `metric` event (ARCP v1.1 §9.6).
+    ///
+    /// `name` SHOULD begin with `cost.`. After the charge a
+    /// `cost.budget.remaining` metric is emitted with the new counter
+    /// so clients can render gauges. Returns
+    /// ``ARCPError/budgetExhausted(detail:)`` when the counter is at
+    /// or below zero before the charge.
+    func charge(name: String, amount: Double, currency: String) async throws
+
     /// Emit `job.progress`. Percent must be 0...100 if provided. RFC §10.1.
     func reportProgress(
         percent: Double?, message: String?, attributes: [String: JSONValue]?)
@@ -64,6 +90,20 @@ public protocol JobContext: Sendable {
         reason: String?,
         leaseSeconds: Int
     ) async throws -> LeaseId
+
+    /// Emit a single `job.result_chunk` fragment (ARCP v1.1 §8.4).
+    ///
+    /// `chunkSeq` is the caller's responsibility — start at 0 and
+    /// increment per chunk for the same `resultId`. The terminal chunk
+    /// MUST set `more: false`; the job's terminal `job.completed` SHOULD
+    /// then carry the same `resultId` (use `ToolOutput.streamed`).
+    func emitResultChunk(
+        resultId: String,
+        chunkSeq: UInt64,
+        data: String,
+        encoding: ResultChunkEncoding,
+        more: Bool
+    ) async throws
 }
 
 extension JobContext {
