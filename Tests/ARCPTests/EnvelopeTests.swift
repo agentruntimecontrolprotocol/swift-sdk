@@ -31,7 +31,7 @@ struct EnvelopeTests {
     func priorityDefault() throws {
         let json = """
             {
-              "arcp": "1.0",
+              "arcp": "1.1",
               "id": "msg_x",
               "type": "ack",
               "timestamp": "2026-05-09T13:00:00Z",
@@ -62,7 +62,7 @@ struct EnvelopeTests {
     func unknownTypeRoundTrip() throws {
         let json = """
             {
-              "arcp": "1.0",
+              "arcp": "1.1",
               "id": "msg_unknown",
               "type": "arcpx.acme.cache.v1.warm",
               "timestamp": "2026-05-09T13:00:00Z",
@@ -98,7 +98,7 @@ struct EnvelopeTests {
     func timestampNoFraction() throws {
         let json = """
             {
-              "arcp": "1.0",
+              "arcp": "1.1",
               "id": "msg_x",
               "type": "ping",
               "timestamp": "2026-05-09T13:00:00Z",
