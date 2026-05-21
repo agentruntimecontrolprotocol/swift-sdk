@@ -1,7 +1,7 @@
 digraph ARCPJobFSM {
-  graph [rankdir=LR, fontname="Inter"]
-  node  [shape=box, style=rounded, fontname="Inter"]
-  edge  [fontname="Inter"]
+  graph [rankdir=LR, fontname="TT Commons Pro Trial"]
+  node  [shape=box, style=rounded, fontname="TT Commons Pro Trial"]
+  edge  [fontname="TT Commons Pro Trial"]
 
   pending   -> running    [label="job.accepted"]
   running   -> success    [label="job.result"]
@@ -14,7 +14,7 @@ digraph ARCPJobFSM {
   running   -> error      [label="BUDGET_EXHAUSTED", color="#D1242F", fontcolor="#1F6FEB", style=dashed]
 
   // v1.1 side effects on running (not state changes)
-  subscriber [shape=ellipse, color="#1F6FEB", fontcolor="#1F6FEB"]
+  subscriber [shape=box, style="rounded", color="#1F6FEB", fontcolor="#1F6FEB"]
   subscriber -> running   [label="job.subscribe",                                color="#1F6FEB", fontcolor="#1F6FEB"]
   running   -> running    [label="lease_constraints.expires_at check (§9.5)",    color="#1F6FEB", fontcolor="#1F6FEB"]
 }

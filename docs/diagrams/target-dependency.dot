@@ -1,7 +1,7 @@
 digraph ARCPTargets {
-  graph [rankdir=LR, fontname="Inter"]
-  node  [shape=box, style=rounded, fontname="Inter"]
-  edge  [fontname="Inter"]
+  graph [rankdir=LR, fontname="TT Commons Pro Trial"]
+  node  [shape=box, style=rounded, fontname="TT Commons Pro Trial"]
+  edge  [fontname="TT Commons Pro Trial"]
 
   ARCPCore
   ARCPClient       -> ARCPCore
