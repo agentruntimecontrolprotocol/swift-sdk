@@ -1,7 +1,7 @@
 # ARCP — Swift SDK
 
 Swift 6 reference implementation of the **Agent Runtime Control Protocol**
-([RFC 0001 v2](RFC-0001-v2.md)). Wire version: **1.0**. SDK version: **0.1.0**.
+([ARCP spec](https://github.com/agentruntimecontrolprotocol/spec/blob/main/docs/draft-arcp-1.1.md)). Wire version: **1.0**. SDK version: **0.1.0**.
 
 ## Status
 
@@ -79,13 +79,13 @@ swift package generate-documentation --target ARCP
   <img alt="ARCP Swift SDK architecture — ARCPClient and ARCPRuntime exchange Envelopes (RFC §6.1) over Memory/Stdio/WebSocket transports; the runtime hosts the SQLite EventLog, SubscriptionManager, SQLite ArtifactStore, per-session JobManager + PendingRegistry, and Bearer/JWT auth" src="docs/diagrams/architecture-light.svg">
 </picture>
 
-State diagrams for sessions, jobs, streams, subscriptions, and leases live in
-[`PLAN.md`](PLAN.md) §6.
+State diagrams for sessions, jobs, streams, subscriptions, and leases live
+under [`docs/diagrams/`](docs/diagrams/).
 
 ## RFC mapping
 
-[`PLAN.md`](PLAN.md) §5 maps every in-scope wire message type to its
-`MessageType` enum case and payload struct. Out-of-scope types decode as
+Every in-scope wire message type maps to a `MessageType` enum case and
+payload struct in [`Sources/ARCP/`](Sources/ARCP/). Out-of-scope types decode as
 `.unknown(typeName:payload:)` and are rejected per RFC §21.3 with `UNIMPLEMENTED`
 when a non-optional sender expects them.
 
