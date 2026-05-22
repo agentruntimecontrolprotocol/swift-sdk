@@ -1,11 +1,11 @@
 # ARCP — Swift SDK
 
 Swift 6 reference implementation of the **Agent Runtime Control Protocol**
-([ARCP spec](https://github.com/agentruntimecontrolprotocol/spec/blob/main/docs/draft-arcp-1.1.md)). Wire version: **1.1**. SDK version: **0.1.0**.
+([ARCP spec](https://github.com/agentruntimecontrolprotocol/spec/blob/main/docs/draft-arcp-1.1.md)). Wire version: **1.1**. SDK version: **1.1.0**.
 
 ## Status
 
-v0.1.0 — protocol fundamentals across the seven gated phases:
+v1.1.0 — full v1.1 protocol surface:
 
 - ✅ Envelope, ids (ULID), errors, extension registry, SQLite event log
 - ✅ Four-step handshake (RFC §8.1) with `bearer`, `signed_jwt`, `none` schemes
@@ -16,13 +16,17 @@ v0.1.0 — protocol fundamentals across the seven gated phases:
 - ✅ Subscriptions with filter, backfill, `subscription.backfill_complete` boundary
 - ✅ Inline-base64 artifacts with retention sweep
 - ✅ Resume by `after_message_id`
+- ✅ `job.result_chunk` wire messages, `ResultChunkStream`, and crash-and-resume
+- ✅ `lease_constraints.expires_at` validation and in-handler expiry checks
+- ✅ `cost.budget` cap, `BUDGET_EXHAUSTED` error, and per-charge metrics
+- ✅ `model.use` parsing, matching, and runtime policy enforcement
+- ✅ `provisioned_credentials` — issue / rotate / revoke lifecycle
 - ✅ Transports: `MemoryTransport` (tests), `StdioTransport` (NDJSON), `WebSocketTransport` (client)
 
-Out of scope for v0.1 (see [`CONFORMANCE.md`](CONFORMANCE.md)): mTLS / OAuth2 auth,
+Out of scope for v1.1 (see [`CONFORMANCE.md`](CONFORMANCE.md)): mTLS / OAuth2 auth,
 sidecar binary stream frames, scheduled jobs, multi-agent delegation/handoff,
-trust elevation, checkpoint-based resume, full WebSocket server (the client
-transport works; server is partial because `WebSocketKit.WebSocket`'s
-server-side initializer is internal — full server lands in v0.2).
+trust elevation, checkpoint-based resume, full WebSocket server (client transport
+works; server-side `WebSocketKit` initializer is internal — full server in v1.2).
 
 ## Requirements
 
@@ -49,6 +53,9 @@ The other samples — `sample-02-tool-invoke-progress`,
 `sample-03-permission-challenge`, `sample-04-observer-subscription` — each
 demonstrate a distinct ARCP surface end-to-end via the in-memory transport.
 
+See [`Recipes/`](Recipes/) for focused, single-feature examples covering MCP
+bridging, cost-budget enforcement, permission leases, and stream resume.
+
 ## CLI
 
 ```bash
@@ -60,7 +67,7 @@ swift run arcp replay <db> <session>
 
 ## Build & test (gate command set)
 
-The seven phases of v0.1 each pass these five commands at exit code 0:
+The v1.1 release passes these five commands at exit code 0:
 
 ```bash
 swift package plugin --allow-writing-to-package-directory format-source-code
