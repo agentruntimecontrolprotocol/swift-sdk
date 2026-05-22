@@ -2,27 +2,10 @@
 
 ## Layer diagram
 
-```
-┌───────────────────────────────────────────────────────┐
-│                   Application code                    │
-│         (ToolHandler, JobContext, CredentialProvisioner)│
-└──────────────────────┬───────────────────┬────────────┘
-                       │                   │
-         ┌─────────────▼──────┐   ┌────────▼───────────┐
-         │    ARCPRuntime     │   │    ARCPClient       │
-         │  (server-side)     │   │  (client-side)      │
-         └─────────────┬──────┘   └────────┬────────────┘
-                       │                   │
-         ┌─────────────▼───────────────────▼────────────┐
-         │           Transport  (RFC §22)                │
-         │  MemoryTransport · StdioTransport · WebSocket │
-         └──────────────────────────────────────────────┘
-                       │
-         ┌─────────────▼──────────────────────────────┐
-         │           Envelope  (RFC §6.1)              │
-         │  id · session_id · type · payload · …       │
-         └────────────────────────────────────────────┘
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="diagrams/architecture-dark.svg">
+  <img alt="ARCP Swift SDK — layer diagram" src="diagrams/architecture-light.svg">
+</picture>
 
 ## Core types
 
@@ -123,5 +106,8 @@ Sources/
 
 ## Diagrams
 
-SVG state diagrams for the session, job, stream, subscription, and lease
-life cycles are in [`docs/diagrams/`](diagrams/).
+The architecture layer diagram above is rendered from
+[`docs/diagrams/architecture-light.dot`](diagrams/architecture-light.dot)
+(light) and [`architecture-dark.dot`](diagrams/architecture-dark.dot) (dark).
+Additional SVG state diagrams for the session, job, stream, subscription, and
+lease life cycles are in [`docs/diagrams/`](diagrams/).
