@@ -119,7 +119,7 @@ struct AgentRefTests {
     func capabilitiesFlatAgents() throws {
         let json = """
             {"streaming":false,"durable_jobs":false,"checkpoints":false,
-             "binary_streams":false,"agent_handoff":false,"human_input":false,
+             "binary_streams":false,"agent_handoff":false,
              "artifacts":false,"subscriptions":false,"scheduled_jobs":false,
              "anonymous":false,"interrupt":false,
              "heartbeat_recovery":"fail","heartbeat_interval_seconds":30,

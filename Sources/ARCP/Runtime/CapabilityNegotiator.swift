@@ -31,7 +31,6 @@ public struct CapabilityNegotiator: Sendable {
             checkpoints: runtimeSupported.checkpoints && clientOffered.checkpoints,
             binaryStreams: runtimeSupported.binaryStreams && clientOffered.binaryStreams,
             agentHandoff: runtimeSupported.agentHandoff && clientOffered.agentHandoff,
-            humanInput: runtimeSupported.humanInput && clientOffered.humanInput,
             artifacts: runtimeSupported.artifacts && clientOffered.artifacts,
             subscriptions: runtimeSupported.subscriptions && clientOffered.subscriptions,
             scheduledJobs: runtimeSupported.scheduledJobs && clientOffered.scheduledJobs,
@@ -69,7 +68,6 @@ public struct CapabilityNegotiator: Sendable {
         case "checkpoints": return runtime.checkpoints && client.checkpoints
         case "binary_streams": return runtime.binaryStreams && client.binaryStreams
         case "agent_handoff": return runtime.agentHandoff && client.agentHandoff
-        case "human_input": return runtime.humanInput && client.humanInput
         case "artifacts": return runtime.artifacts && client.artifacts
         case "subscriptions": return runtime.subscriptions && client.subscriptions
         case "scheduled_jobs": return runtime.scheduledJobs && client.scheduledJobs

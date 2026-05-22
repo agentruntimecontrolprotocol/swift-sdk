@@ -37,7 +37,6 @@ struct ServeCommand: AsyncParsableCommand {
             supportedCapabilities: Capabilities(
                 streaming: true,
                 durableJobs: true,
-                humanInput: true,
                 artifacts: true,
                 subscriptions: true
             ),

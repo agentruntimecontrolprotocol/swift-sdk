@@ -12,7 +12,6 @@ v0.1.0 — protocol fundamentals across the seven gated phases:
 - ✅ Capability negotiation (RFC §7)
 - ✅ Durable jobs with state machine, heartbeats, cooperative cancellation, interrupts
 - ✅ Multi-kind streams (text, event, log, thought, metric, base64 binary) + backpressure
-- ✅ Human-in-the-loop primitives with first-response-wins resolution and default fallback
 - ✅ Permission challenges + lease lifecycle (grant, refresh, revoke, expire sweep)
 - ✅ Subscriptions with filter, backfill, `subscription.backfill_complete` boundary
 - ✅ Inline-base64 artifacts with retention sweep
@@ -46,9 +45,8 @@ pong nonce: hello
 session closed
 ```
 
-The other five samples — `sample-02-tool-invoke-progress`,
-`sample-03-human-input-request`, `sample-04-permission-challenge`,
-`sample-05-observer-subscription`, `sample-06-relay-human-in-the-loop` — each
+The other samples — `sample-02-tool-invoke-progress`,
+`sample-03-permission-challenge`, `sample-04-observer-subscription` — each
 demonstrate a distinct ARCP surface end-to-end via the in-memory transport.
 
 ## CLI

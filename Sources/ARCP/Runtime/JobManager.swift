@@ -29,8 +29,6 @@ public actor JobManager {
         try await rawSend(envelope)
     }
     private let streamManager: StreamManager
-    public let humanInputRegistry = PendingRegistry<HumanInputResponsePayload>()
-    public let humanChoiceRegistry = PendingRegistry<HumanChoiceResponsePayload>()
     public let permissionRegistry = PendingRegistry<PermissionOutcome>()
     public let leaseManager: LeaseManager
     public let credentialManager: CredentialManager?
@@ -298,8 +296,8 @@ public actor JobManager {
         }
     }
 
-    /// Handle an `interrupt` (RFC §10.5). Transitions the job to `.blocked` and
-    /// emits `human.input.request`. Phase 4 wires the response loop.
+    /// Handle an `interrupt` (RFC §10.5). Transitions the job to `.blocked`.
+    /// An ack is sent so the client knows the interrupt was received.
     public func handleInterrupt(envelope: Envelope, payload: InterruptPayload) async throws {
         guard payload.target == .job,
             let jobId = jobs.keys.first(where: { $0.rawValue == payload.targetId })
@@ -314,12 +312,7 @@ public actor JobManager {
                 sessionId: sessionId,
                 jobId: jobId,
                 correlationId: envelope.id,
-                payload: .humanInputRequest(
-                    HumanInputRequestPayload(
-                        prompt: payload.prompt,
-                        expiresAt: Date(timeIntervalSinceNow: 300)
-                    )
-                )
+                payload: .ack(AckPayload(detail: "interrupt"))
             )
         )
     }
@@ -327,17 +320,6 @@ public actor JobManager {
     /// Forward stream events to the StreamManager.
     public func handleStreamEnvelope(_ envelope: Envelope) async {
         await streamManager.dispatch(envelope: envelope)
-    }
-
-    /// Resolve a pending human-input request from the client side.
-    public func handleHumanInputResponse(envelope: Envelope, payload: HumanInputResponsePayload) async {
-        guard let id = envelope.correlationId else { return }
-        await humanInputRegistry.resolve(id: id, value: payload)
-    }
-
-    public func handleHumanChoiceResponse(envelope: Envelope, payload: HumanChoiceResponsePayload) async {
-        guard let id = envelope.correlationId else { return }
-        await humanChoiceRegistry.resolve(id: id, value: payload)
     }
 
     /// Resolve `permission.grant` / `permission.deny`.
@@ -364,78 +346,6 @@ public actor JobManager {
 
     public func handleLeaseRefresh(envelope: Envelope, payload: LeaseRefreshPayload) async {
         try? await leaseManager.refresh(leaseId: payload.leaseId, seconds: payload.requestedSeconds)
-    }
-
-    /// Send a human input request from server to client and await the response.
-    func requestHumanInput(
-        jobId: JobId,
-        prompt: String,
-        responseSchema: JSONValue?,
-        defaultValue: JSONValue?,
-        expiresIn: Duration
-    ) async throws -> HumanInputResponsePayload {
-        let id = MessageId.random()
-        let expiresAt = Date(timeIntervalSinceNow: TimeInterval(expiresIn.timeInterval))
-        try await send(
-            Envelope(
-                id: id,
-                sessionId: sessionId,
-                jobId: jobId,
-                payload: .humanInputRequest(
-                    HumanInputRequestPayload(
-                        prompt: prompt,
-                        responseSchema: responseSchema,
-                        default: defaultValue,
-                        expiresAt: expiresAt
-                    )
-                )
-            )
-        )
-        do {
-            return try await humanInputRegistry.awaitResponse(id: id, deadline: expiresIn)
-        } catch let error as ARCPError where error.code == .deadlineExceeded {
-            if let defaultValue {
-                let synthetic = HumanInputResponsePayload(
-                    value: defaultValue,
-                    respondedBy: "default",
-                    respondedAt: Date()
-                )
-                return synthetic
-            }
-            try? await send(
-                Envelope(
-                    sessionId: sessionId,
-                    jobId: jobId,
-                    correlationId: id,
-                    payload: .humanInputCancelled(
-                        HumanInputCancelledPayload(code: .deadlineExceeded, reason: "expired")
-                    )
-                )
-            )
-            throw error
-        }
-    }
-
-    /// Send a human choice request and await the selection.
-    func requestHumanChoice(
-        jobId: JobId,
-        prompt: String,
-        options: [HumanChoiceRequestPayload.Option],
-        expiresIn: Duration
-    ) async throws -> HumanChoiceResponsePayload {
-        let id = MessageId.random()
-        let expiresAt = Date(timeIntervalSinceNow: TimeInterval(expiresIn.timeInterval))
-        try await send(
-            Envelope(
-                id: id,
-                sessionId: sessionId,
-                jobId: jobId,
-                payload: .humanChoiceRequest(
-                    HumanChoiceRequestPayload(prompt: prompt, options: options, expiresAt: expiresAt)
-                )
-            )
-        )
-        return try await humanChoiceRegistry.awaitResponse(id: id, deadline: expiresIn)
     }
 
     /// Send a permission challenge and await grant/deny.
@@ -485,8 +395,6 @@ public actor JobManager {
         await streamManager.shutdown()
         await leaseManager.stop()
         let closeError = ARCPError.unavailable(reason: "session closing", retryAfter: nil)
-        await humanInputRegistry.failAll(error: closeError)
-        await humanChoiceRegistry.failAll(error: closeError)
         await permissionRegistry.failAll(error: closeError)
     }
 
@@ -866,34 +774,6 @@ struct ConcreteJobContext: JobContext, Sendable {
                 jobId: jobId,
                 payload: .metric(MetricPayload(name: name, value: value, unit: unit, dims: dims))
             )
-        )
-    }
-
-    func requestHumanInput(
-        prompt: String,
-        responseSchema: JSONValue?,
-        default defaultValue: JSONValue?,
-        expiresIn: Duration
-    ) async throws -> HumanInputResponsePayload {
-        try await manager.requestHumanInput(
-            jobId: jobId,
-            prompt: prompt,
-            responseSchema: responseSchema,
-            defaultValue: defaultValue,
-            expiresIn: expiresIn
-        )
-    }
-
-    func requestHumanChoice(
-        prompt: String,
-        options: [HumanChoiceRequestPayload.Option],
-        expiresIn: Duration
-    ) async throws -> HumanChoiceResponsePayload {
-        try await manager.requestHumanChoice(
-            jobId: jobId,
-            prompt: prompt,
-            options: options,
-            expiresIn: expiresIn
         )
     }
 

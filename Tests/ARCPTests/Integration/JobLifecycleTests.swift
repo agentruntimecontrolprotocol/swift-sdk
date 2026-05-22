@@ -16,7 +16,7 @@ struct JobLifecycleTests {
         let pair = MemoryTransport.makePair()
         let runtime = try ARCPRuntime(
             identity: IdentityBlock(kind: "example-runtime", version: "0.1"),
-            supportedCapabilities: Capabilities(streaming: true, durableJobs: true, humanInput: true),
+            supportedCapabilities: Capabilities(streaming: true, durableJobs: true),
             auth: BearerAuthValidator(subjectsByToken: ["t": "alice"])
         )
         await runtime.register(handler)
@@ -25,7 +25,7 @@ struct JobLifecycleTests {
             transport: pair.client,
             auth: AuthBlock(scheme: .bearer, token: "t"),
             client: IdentityBlock(kind: "tester", version: "1"),
-            capabilities: Capabilities(streaming: true, durableJobs: true, humanInput: true)
+            capabilities: Capabilities(streaming: true, durableJobs: true)
         )
         return (client, serverTask, pair.client)
     }

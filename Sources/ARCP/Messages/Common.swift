@@ -7,7 +7,6 @@ public struct Capabilities: Sendable, Codable, Hashable {
     public var checkpoints: Bool
     public var binaryStreams: Bool
     public var agentHandoff: Bool
-    public var humanInput: Bool
     public var artifacts: Bool
     public var subscriptions: Bool
     public var scheduledJobs: Bool
@@ -33,7 +32,6 @@ public struct Capabilities: Sendable, Codable, Hashable {
         checkpoints: Bool = false,
         binaryStreams: Bool = false,
         agentHandoff: Bool = false,
-        humanInput: Bool = false,
         artifacts: Bool = false,
         subscriptions: Bool = false,
         scheduledJobs: Bool = false,
@@ -56,7 +54,6 @@ public struct Capabilities: Sendable, Codable, Hashable {
         self.checkpoints = checkpoints
         self.binaryStreams = binaryStreams
         self.agentHandoff = agentHandoff
-        self.humanInput = humanInput
         self.artifacts = artifacts
         self.subscriptions = subscriptions
         self.scheduledJobs = scheduledJobs
@@ -102,7 +99,7 @@ public struct Capabilities: Sendable, Codable, Hashable {
 
     private static let knownKeys: Set<String> = [
         "streaming", "durable_jobs", "checkpoints", "binary_streams", "agent_handoff",
-        "human_input", "artifacts", "subscriptions", "scheduled_jobs", "anonymous",
+        "artifacts", "subscriptions", "scheduled_jobs", "anonymous",
         "interrupt", "result_chunk", "cost_budget", "cost.budget", "model_use", "model.use",
         "provisioned_credentials", "heartbeat_recovery", "heartbeat_interval_seconds",
         "binary_encoding", "artifact_retention", "extensions", "agents",
@@ -126,7 +123,6 @@ public struct Capabilities: Sendable, Codable, Hashable {
         self.checkpoints = decodeBool("checkpoints")
         self.binaryStreams = decodeBool("binary_streams")
         self.agentHandoff = decodeBool("agent_handoff")
-        self.humanInput = decodeBool("human_input")
         self.artifacts = decodeBool("artifacts")
         self.subscriptions = decodeBool("subscriptions")
         self.scheduledJobs = decodeBool("scheduled_jobs")
@@ -180,7 +176,6 @@ public struct Capabilities: Sendable, Codable, Hashable {
         try container.encode(checkpoints, forKey: DynamicKey(stringValue: "checkpoints"))
         try container.encode(binaryStreams, forKey: DynamicKey(stringValue: "binary_streams"))
         try container.encode(agentHandoff, forKey: DynamicKey(stringValue: "agent_handoff"))
-        try container.encode(humanInput, forKey: DynamicKey(stringValue: "human_input"))
         try container.encode(artifacts, forKey: DynamicKey(stringValue: "artifacts"))
         try container.encode(subscriptions, forKey: DynamicKey(stringValue: "subscriptions"))
         try container.encode(scheduledJobs, forKey: DynamicKey(stringValue: "scheduled_jobs"))

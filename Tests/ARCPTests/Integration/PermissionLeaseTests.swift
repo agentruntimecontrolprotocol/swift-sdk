@@ -10,7 +10,7 @@ struct PermissionLeaseTests {
         let pair = MemoryTransport.makePair()
         let runtime = try ARCPRuntime(
             identity: IdentityBlock(kind: "example-runtime", version: "0.1"),
-            supportedCapabilities: Capabilities(durableJobs: true, humanInput: true),
+            supportedCapabilities: Capabilities(durableJobs: true),
             auth: BearerAuthValidator(subjectsByToken: ["t": "alice"])
         )
         await runtime.register(WriteTool())
@@ -19,7 +19,7 @@ struct PermissionLeaseTests {
             transport: pair.client,
             auth: AuthBlock(scheme: .bearer, token: "t"),
             client: IdentityBlock(kind: "tester", version: "1"),
-            capabilities: Capabilities(durableJobs: true, humanInput: true)
+            capabilities: Capabilities(durableJobs: true)
         )
         await client.setPermissionHandler(GrantingPermissionHandler(seconds: 60))
         defer {
@@ -47,7 +47,7 @@ struct PermissionLeaseTests {
         let pair = MemoryTransport.makePair()
         let runtime = try ARCPRuntime(
             identity: IdentityBlock(kind: "example-runtime", version: "0.1"),
-            supportedCapabilities: Capabilities(durableJobs: true, humanInput: true),
+            supportedCapabilities: Capabilities(durableJobs: true),
             auth: BearerAuthValidator(subjectsByToken: ["t": "alice"])
         )
         await runtime.register(WriteTool())
@@ -56,7 +56,7 @@ struct PermissionLeaseTests {
             transport: pair.client,
             auth: AuthBlock(scheme: .bearer, token: "t"),
             client: IdentityBlock(kind: "tester", version: "1"),
-            capabilities: Capabilities(durableJobs: true, humanInput: true)
+            capabilities: Capabilities(durableJobs: true)
         )
         await client.setPermissionHandler(DenyingPermissionHandler())
         defer {

@@ -4,9 +4,9 @@ import Logging
 /// Server-side runtime that owns sessions, an event log, and the dispatch
 /// loop for incoming envelopes. RFC §6.3 / §8.
 ///
-/// In Phase 2 the runtime handles the handshake (RFC §8.1) and basic
-/// control messages (`ping`, `session.close`). Phase 3 layers job/stream
-/// dispatch on top, Phase 4 adds permissions/HITL, etc.
+/// The runtime handles the handshake (RFC §8.1), basic control messages
+/// (`ping`, `session.close`), job/stream dispatch, permissions/leases,
+/// subscriptions, artifacts, and telemetry.
 public actor ARCPRuntime {
     public let identity: IdentityBlock
     public let supportedCapabilities: Capabilities
@@ -297,15 +297,6 @@ public actor ARCPRuntime {
             return false
         case .streamChunk, .streamClose, .streamError:
             await jobManager.handleStreamEnvelope(envelope)
-            return false
-        case .humanInputResponse(let payload):
-            await jobManager.handleHumanInputResponse(envelope: envelope, payload: payload)
-            return false
-        case .humanChoiceResponse(let payload):
-            await jobManager.handleHumanChoiceResponse(envelope: envelope, payload: payload)
-            return false
-        case .humanInputCancelled:
-            // Client signals timeout/cancel of an in-flight HITL request.
             return false
         case .permissionGrant(let payload):
             await jobManager.handlePermissionGrant(envelope: envelope, payload: payload)

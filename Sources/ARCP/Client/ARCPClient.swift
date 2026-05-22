@@ -17,7 +17,6 @@ public actor ARCPClient {
     private var invokeByJobId: [JobId: MessageId] = [:]
     private var resultChunkStreams: [JobId: ResultChunkStream] = [:]
     private var unhandledContinuation: AsyncStream<Envelope>.Continuation?
-    private var humanInputHandler: any HumanInputHandler = DefaultHumanInputHandler()
     private var permissionHandler: any PermissionHandler = DefaultPermissionHandler()
 
     private struct JobInvocationState {
@@ -221,60 +220,6 @@ public actor ARCPClient {
             if let invokeId = envelope.correlationId, pendingByInvoke[invokeId] != nil {
                 resolve(invokeId: invokeId, outcome: .failed(payload.error))
             }
-        case .humanInputRequest(let payload):
-            Task { [transport, humanInputHandler] in
-                let result: HumanInputResponsePayload
-                do {
-                    result = try await humanInputHandler.handle(payload, jobId: envelope.jobId)
-                } catch {
-                    try? await transport.send(
-                        Envelope(
-                            sessionId: envelope.sessionId,
-                            jobId: envelope.jobId,
-                            correlationId: envelope.id,
-                            payload: .humanInputCancelled(
-                                HumanInputCancelledPayload(code: .cancelled, reason: "\(error)")
-                            )
-                        )
-                    )
-                    return
-                }
-                try? await transport.send(
-                    Envelope(
-                        sessionId: envelope.sessionId,
-                        jobId: envelope.jobId,
-                        correlationId: envelope.id,
-                        payload: .humanInputResponse(result)
-                    )
-                )
-            }
-        case .humanChoiceRequest(let payload):
-            Task { [transport, humanInputHandler] in
-                let result: HumanChoiceResponsePayload
-                do {
-                    result = try await humanInputHandler.handle(payload, jobId: envelope.jobId)
-                } catch {
-                    try? await transport.send(
-                        Envelope(
-                            sessionId: envelope.sessionId,
-                            jobId: envelope.jobId,
-                            correlationId: envelope.id,
-                            payload: .humanInputCancelled(
-                                HumanInputCancelledPayload(code: .cancelled, reason: "\(error)")
-                            )
-                        )
-                    )
-                    return
-                }
-                try? await transport.send(
-                    Envelope(
-                        sessionId: envelope.sessionId,
-                        jobId: envelope.jobId,
-                        correlationId: envelope.id,
-                        payload: .humanChoiceResponse(result)
-                    )
-                )
-            }
         case .permissionRequest(let payload):
             Task { [transport, permissionHandler] in
                 let decision: PermissionDecision
@@ -332,11 +277,6 @@ public actor ARCPClient {
     private func failResultStream(_ jobId: JobId, error: any Error) async {
         guard let stream = resultChunkStreams.removeValue(forKey: jobId) else { return }
         await stream.fail(error)
-    }
-
-    /// Register a custom human input handler.
-    public func setHumanInputHandler(_ handler: any HumanInputHandler) {
-        self.humanInputHandler = handler
     }
 
     /// Register a custom permission handler.

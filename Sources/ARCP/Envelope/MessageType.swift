@@ -53,13 +53,6 @@ public enum MessageType: Sendable, Hashable {
     case streamClose(StreamClosePayload)
     case streamError(StreamErrorPayload)
 
-    // Human-in-the-Loop (RFC §12)
-    case humanInputRequest(HumanInputRequestPayload)
-    case humanInputResponse(HumanInputResponsePayload)
-    case humanChoiceRequest(HumanChoiceRequestPayload)
-    case humanChoiceResponse(HumanChoiceResponsePayload)
-    case humanInputCancelled(HumanInputCancelledPayload)
-
     // Permissions & Leases (RFC §15)
     case permissionRequest(PermissionRequestPayload)
     case permissionGrant(PermissionGrantPayload)
@@ -134,11 +127,6 @@ extension MessageType {
         case .streamChunk: return "stream.chunk"
         case .streamClose: return "stream.close"
         case .streamError: return "stream.error"
-        case .humanInputRequest: return "human.input.request"
-        case .humanInputResponse: return "human.input.response"
-        case .humanChoiceRequest: return "human.choice.request"
-        case .humanChoiceResponse: return "human.choice.response"
-        case .humanInputCancelled: return "human.input.cancelled"
         case .permissionRequest: return "permission.request"
         case .permissionGrant: return "permission.grant"
         case .permissionDeny: return "permission.deny"
@@ -202,11 +190,6 @@ extension MessageType {
         case .streamChunk(let value): try value.encode(to: encoder)
         case .streamClose(let value): try value.encode(to: encoder)
         case .streamError(let value): try value.encode(to: encoder)
-        case .humanInputRequest(let value): try value.encode(to: encoder)
-        case .humanInputResponse(let value): try value.encode(to: encoder)
-        case .humanChoiceRequest(let value): try value.encode(to: encoder)
-        case .humanChoiceResponse(let value): try value.encode(to: encoder)
-        case .humanInputCancelled(let value): try value.encode(to: encoder)
         case .permissionRequest(let value): try value.encode(to: encoder)
         case .permissionGrant(let value): try value.encode(to: encoder)
         case .permissionDeny(let value): try value.encode(to: encoder)
@@ -306,16 +289,6 @@ extension MessageType {
             return .streamClose(try StreamClosePayload(from: decoder))
         case "stream.error":
             return .streamError(try StreamErrorPayload(from: decoder))
-        case "human.input.request":
-            return .humanInputRequest(try HumanInputRequestPayload(from: decoder))
-        case "human.input.response":
-            return .humanInputResponse(try HumanInputResponsePayload(from: decoder))
-        case "human.choice.request":
-            return .humanChoiceRequest(try HumanChoiceRequestPayload(from: decoder))
-        case "human.choice.response":
-            return .humanChoiceResponse(try HumanChoiceResponsePayload(from: decoder))
-        case "human.input.cancelled":
-            return .humanInputCancelled(try HumanInputCancelledPayload(from: decoder))
         case "permission.request":
             return .permissionRequest(try PermissionRequestPayload(from: decoder))
         case "permission.grant":

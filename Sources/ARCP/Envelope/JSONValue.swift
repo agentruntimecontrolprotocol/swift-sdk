@@ -2,8 +2,7 @@ import Foundation
 
 /// Recursive enum representing arbitrary JSON. Used at the wire boundary for
 /// payloads whose shape is opaque to the protocol — e.g. `tool.invoke.arguments`
-/// (RFC §6.2 / §10), `human.input.response.value` (RFC §12.1), and the
-/// `details` field of `tool.error` (RFC §18.1).
+/// (RFC §6.2 / §10) and the `details` field of `tool.error` (RFC §18.1).
 ///
 /// `JSONValue` is a `Sendable Codable` value type and round-trips through
 /// `JSONEncoder` / `JSONDecoder` losslessly. It's preferred over `Any` so

@@ -127,7 +127,7 @@ let roundTripFixtures: [RoundTripFixture] = [
             SessionOpenPayload(
                 auth: AuthBlock(scheme: .bearer, token: "tok"),
                 client: IdentityBlock(kind: "example-client", version: "1.4.2"),
-                capabilities: Capabilities(streaming: true, humanInput: true, artifacts: true)
+                capabilities: Capabilities(streaming: true, artifacts: true)
             )
         )
     ),
@@ -245,31 +245,6 @@ let roundTripFixtures: [RoundTripFixture] = [
     .init(
         payload: .streamError(
             StreamErrorPayload(error: ErrorEnvelope(code: .cancelled, message: "stop"))
-        )
-    ),
-    .init(
-        payload: .humanInputRequest(
-            HumanInputRequestPayload(prompt: "branch?", expiresAt: later)
-        )
-    ),
-    .init(
-        payload: .humanInputResponse(
-            HumanInputResponsePayload(value: .object(["branch": .string("fix/x")]))
-        )
-    ),
-    .init(
-        payload: .humanChoiceRequest(
-            HumanChoiceRequestPayload(
-                prompt: "go?",
-                options: [.init(id: "y", label: "Yes")],
-                expiresAt: later
-            )
-        )
-    ),
-    .init(payload: .humanChoiceResponse(HumanChoiceResponsePayload(choiceId: "y"))),
-    .init(
-        payload: .humanInputCancelled(
-            HumanInputCancelledPayload(code: .deadlineExceeded, reason: "expired")
         )
     ),
     .init(

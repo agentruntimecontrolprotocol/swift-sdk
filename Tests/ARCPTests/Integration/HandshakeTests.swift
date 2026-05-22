@@ -10,7 +10,7 @@ struct HandshakeTests {
         let pair = MemoryTransport.makePair()
         let runtime = try ARCPRuntime(
             identity: IdentityBlock(kind: "example-runtime", version: "0.1"),
-            supportedCapabilities: Capabilities(streaming: true, humanInput: true),
+            supportedCapabilities: Capabilities(streaming: true),
             auth: BearerAuthValidator(subjectsByToken: ["secret-token": "alice"])
         )
         let serverTask = Task { try await runtime.acceptSession(over: pair.server) }
@@ -18,11 +18,10 @@ struct HandshakeTests {
             transport: pair.client,
             auth: AuthBlock(scheme: .bearer, token: "secret-token"),
             client: IdentityBlock(kind: "example-client", version: "1.4.2"),
-            capabilities: Capabilities(streaming: true, humanInput: true)
+            capabilities: Capabilities(streaming: true)
         )
         #expect(client.info.runtimeIdentity.kind == "example-runtime")
         #expect(client.info.negotiatedCapabilities.streaming == true)
-        #expect(client.info.negotiatedCapabilities.humanInput == true)
         await client.close()
         let serverInfo = try await serverTask.value
         #expect(serverInfo.principal.subject == "alice")
@@ -121,7 +120,7 @@ struct HandshakeTests {
         let pair = MemoryTransport.makePair()
         let runtime = try ARCPRuntime(
             identity: IdentityBlock(kind: "example-runtime", version: "0.1"),
-            supportedCapabilities: Capabilities(streaming: true, humanInput: false, artifacts: true),
+            supportedCapabilities: Capabilities(streaming: true, artifacts: true),
             auth: BearerAuthValidator(subjectsByToken: ["t": "alice"])
         )
         let serverTask = Task { try await runtime.acceptSession(over: pair.server) }
@@ -129,10 +128,9 @@ struct HandshakeTests {
             transport: pair.client,
             auth: AuthBlock(scheme: .bearer, token: "t"),
             client: IdentityBlock(kind: "example-client", version: "1"),
-            capabilities: Capabilities(streaming: true, humanInput: true, artifacts: false)
+            capabilities: Capabilities(streaming: true, artifacts: false)
         )
         #expect(client.info.negotiatedCapabilities.streaming == true)
-        #expect(client.info.negotiatedCapabilities.humanInput == false)
         #expect(client.info.negotiatedCapabilities.artifacts == false)
         await client.close()
         _ = try await serverTask.value

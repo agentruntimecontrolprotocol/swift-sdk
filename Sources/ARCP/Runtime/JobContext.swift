@@ -1,7 +1,8 @@
 import Foundation
 
 /// Context passed to a `ToolHandler` — provides progress reporting,
-/// streaming, cancellation observation, and (Phase 4+) permission/HITL hooks.
+/// streaming, cancellation observation, permission/lease hooks, and
+/// provisioned-credential rotation.
 public protocol JobContext: Sendable {
     var jobId: JobId { get }
     var sessionId: SessionId { get }
@@ -69,23 +70,6 @@ public protocol JobContext: Sendable {
 
     /// Emit a `metric` envelope. RFC §17.3.
     func metric(name: String, value: Double, unit: String?, dims: [String: JSONValue]?) async throws
-
-    /// Request structured input from a human. RFC §12.1. Blocks the calling
-    /// task until a response arrives or `expiresAt` elapses (in which case
-    /// the configured default is synthesized, or the request is cancelled).
-    func requestHumanInput(
-        prompt: String,
-        responseSchema: JSONValue?,
-        default: JSONValue?,
-        expiresIn: Duration
-    ) async throws -> HumanInputResponsePayload
-
-    /// Request a multi-option human choice. RFC §12.2.
-    func requestHumanChoice(
-        prompt: String,
-        options: [HumanChoiceRequestPayload.Option],
-        expiresIn: Duration
-    ) async throws -> HumanChoiceResponsePayload
 
     /// Request a permission grant. RFC §15.4. Blocks until the client
     /// returns `permission.grant` or `permission.deny`.
