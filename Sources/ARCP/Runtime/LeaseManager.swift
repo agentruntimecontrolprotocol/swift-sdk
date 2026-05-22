@@ -43,7 +43,9 @@ public actor LeaseManager {
         permission: String,
         resource: String,
         operation: String,
-        seconds: Int
+        seconds: Int,
+        costBudget: CostBudget? = nil,
+        modelUse: ModelUse? = nil
     ) async throws -> LeaseId {
         let leaseId = LeaseId.random()
         let expiresAt = Date(timeIntervalSinceNow: TimeInterval(seconds))
@@ -53,6 +55,8 @@ public actor LeaseManager {
             resource: resource,
             operation: operation,
             expiresAt: expiresAt,
+            costBudget: costBudget,
+            modelUse: modelUse,
             revoked: false
         )
         try await send(
@@ -64,7 +68,9 @@ public actor LeaseManager {
                         permission: permission,
                         resource: resource,
                         operation: operation,
-                        expiresAt: expiresAt
+                        expiresAt: expiresAt,
+                        costBudget: costBudget,
+                        modelUse: modelUse
                     )
                 )
             )
@@ -117,12 +123,23 @@ public actor LeaseManager {
 
     public enum LeaseStatus: Sendable, Equatable { case active, expired, revoked }
 
+    public func snapshot(_ leaseId: LeaseId) -> LeaseSnapshot? {
+        guard let record = leases[leaseId], !record.revoked else { return nil }
+        return LeaseSnapshot(
+            costBudget: record.costBudget,
+            modelUse: record.modelUse,
+            expiresAt: record.expiresAt
+        )
+    }
+
     private struct LeaseRecord: Sendable {
         let leaseId: LeaseId
         let permission: String
         let resource: String
         let operation: String
         var expiresAt: Date
+        var costBudget: CostBudget?
+        var modelUse: ModelUse?
         var revoked: Bool
     }
 

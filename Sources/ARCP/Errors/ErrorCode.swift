@@ -24,6 +24,7 @@ public enum ErrorCode: String, Sendable, Hashable, Codable, CaseIterable {
     case heartbeatLost = "HEARTBEAT_LOST"
     case leaseExpired = "LEASE_EXPIRED"
     case leaseRevoked = "LEASE_REVOKED"
+    case leaseSubsetViolation = "LEASE_SUBSET_VIOLATION"
     case backpressureOverflow = "BACKPRESSURE_OVERFLOW"
     /// `BUDGET_EXHAUSTED` — a `cost.budget` counter reached its maximum
     /// (ARCP v1.1 §12; §9.6).

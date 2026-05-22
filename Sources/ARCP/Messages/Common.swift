@@ -13,6 +13,10 @@ public struct Capabilities: Sendable, Codable, Hashable {
     public var scheduledJobs: Bool
     public var anonymous: Bool
     public var interrupt: Bool
+    public var resultChunk: Bool
+    public var costBudget: Bool
+    public var modelUse: Bool
+    public var provisionedCredentials: Bool
     public var heartbeatRecovery: HeartbeatRecovery
     public var heartbeatIntervalSeconds: Int
     public var binaryEncoding: [BinaryEncoding]
@@ -35,6 +39,10 @@ public struct Capabilities: Sendable, Codable, Hashable {
         scheduledJobs: Bool = false,
         anonymous: Bool = false,
         interrupt: Bool = false,
+        resultChunk: Bool = false,
+        costBudget: Bool = false,
+        modelUse: Bool = false,
+        provisionedCredentials: Bool = false,
         heartbeatRecovery: HeartbeatRecovery = .fail,
         heartbeatIntervalSeconds: Int = 30,
         binaryEncoding: [BinaryEncoding] = [.base64],
@@ -54,6 +62,10 @@ public struct Capabilities: Sendable, Codable, Hashable {
         self.scheduledJobs = scheduledJobs
         self.anonymous = anonymous
         self.interrupt = interrupt
+        self.resultChunk = resultChunk
+        self.costBudget = costBudget
+        self.modelUse = modelUse
+        self.provisionedCredentials = provisionedCredentials
         self.heartbeatRecovery = heartbeatRecovery
         self.heartbeatIntervalSeconds = heartbeatIntervalSeconds
         self.binaryEncoding = binaryEncoding
@@ -91,8 +103,9 @@ public struct Capabilities: Sendable, Codable, Hashable {
     private static let knownKeys: Set<String> = [
         "streaming", "durable_jobs", "checkpoints", "binary_streams", "agent_handoff",
         "human_input", "artifacts", "subscriptions", "scheduled_jobs", "anonymous",
-        "interrupt", "heartbeat_recovery", "heartbeat_interval_seconds", "binary_encoding",
-        "artifact_retention", "extensions", "agents",
+        "interrupt", "result_chunk", "cost_budget", "cost.budget", "model_use", "model.use",
+        "provisioned_credentials", "heartbeat_recovery", "heartbeat_interval_seconds",
+        "binary_encoding", "artifact_retention", "extensions", "agents",
     ]
 
     private struct DynamicKey: CodingKey {
@@ -119,6 +132,10 @@ public struct Capabilities: Sendable, Codable, Hashable {
         self.scheduledJobs = decodeBool("scheduled_jobs")
         self.anonymous = decodeBool("anonymous")
         self.interrupt = decodeBool("interrupt")
+        self.resultChunk = decodeBool("result_chunk")
+        self.costBudget = decodeBool("cost_budget") || decodeBool("cost.budget")
+        self.modelUse = decodeBool("model_use") || decodeBool("model.use")
+        self.provisionedCredentials = decodeBool("provisioned_credentials")
         self.heartbeatRecovery =
             ((try? container.decodeIfPresent(
                 HeartbeatRecovery.self,
@@ -169,6 +186,13 @@ public struct Capabilities: Sendable, Codable, Hashable {
         try container.encode(scheduledJobs, forKey: DynamicKey(stringValue: "scheduled_jobs"))
         try container.encode(anonymous, forKey: DynamicKey(stringValue: "anonymous"))
         try container.encode(interrupt, forKey: DynamicKey(stringValue: "interrupt"))
+        try container.encode(resultChunk, forKey: DynamicKey(stringValue: "result_chunk"))
+        try container.encode(costBudget, forKey: DynamicKey(stringValue: "cost_budget"))
+        try container.encode(modelUse, forKey: DynamicKey(stringValue: "model_use"))
+        try container.encode(
+            provisionedCredentials,
+            forKey: DynamicKey(stringValue: "provisioned_credentials")
+        )
         try container.encode(heartbeatRecovery, forKey: DynamicKey(stringValue: "heartbeat_recovery"))
         try container.encode(
             heartbeatIntervalSeconds,

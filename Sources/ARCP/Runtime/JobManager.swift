@@ -33,6 +33,7 @@ public actor JobManager {
     public let humanChoiceRegistry = PendingRegistry<HumanChoiceResponsePayload>()
     public let permissionRegistry = PendingRegistry<PermissionOutcome>()
     public let leaseManager: LeaseManager
+    public let credentialManager: CredentialManager?
 
     /// Outcome of a permission challenge. RFC §15.4.
     public enum PermissionOutcome: Sendable {
@@ -44,6 +45,7 @@ public actor JobManager {
         sessionId: SessionId,
         heartbeatInterval: TimeInterval = 30,
         cancelDeadline: TimeInterval = 5,
+        credentialManager: CredentialManager? = nil,
         send: @escaping @Sendable (Envelope) async throws -> Void
     ) {
         self.sessionId = sessionId
@@ -52,6 +54,7 @@ public actor JobManager {
         self.rawSend = send
         self.streamManager = StreamManager(sessionId: sessionId, send: send)
         self.leaseManager = LeaseManager(sessionId: sessionId, send: send)
+        self.credentialManager = credentialManager
         self.log = Logger(label: "arcp.jobs.\(sessionId)")
     }
 
@@ -144,12 +147,41 @@ public actor JobManager {
             return
         }
         let jobId = JobId.random()
+        let leaseSnapshot = LeaseSnapshot(
+            costBudget: payload.costBudget,
+            modelUse: payload.modelUse,
+            expiresAt: payload.leaseConstraints?.expiresAt
+        )
+        let credentials: [ProvisionedCredential]?
+        if let credentialManager, !leaseSnapshot.isEmpty {
+            do {
+                credentials = try await credentialManager.issueForJob(jobId, lease: leaseSnapshot)
+            } catch {
+                try await rawSend(
+                    Envelope(
+                        sessionId: sessionId,
+                        correlationId: envelope.id,
+                        payload: .toolError(
+                            ToolErrorPayload(
+                                error: ARCPError.unavailable(
+                                    reason: "credential provisioning failed",
+                                    retryAfter: nil
+                                ).toEnvelope()
+                            )
+                        )
+                    )
+                )
+                return
+            }
+        } else {
+            credentials = nil
+        }
         try await send(
             Envelope(
                 sessionId: sessionId,
                 jobId: jobId,
                 correlationId: envelope.id,
-                payload: .jobAccepted(JobAcceptedPayload(jobId: jobId))
+                payload: .jobAccepted(JobAcceptedPayload(jobId: jobId, credentials: credentials))
             )
         )
         let record = JobRecord(
@@ -160,7 +192,9 @@ public actor JobManager {
             createdAt: Date(),
             parentJobId: nil,
             state: .accepted,
-            leaseExpiresAt: payload.leaseConstraints?.expiresAt
+            leaseExpiresAt: payload.leaseConstraints?.expiresAt,
+            costBudget: payload.costBudget,
+            modelUse: payload.modelUse
         )
         jobs[jobId] = record
 
@@ -189,6 +223,8 @@ public actor JobManager {
             },
             leaseExpiresAt: payload.leaseConstraints?.expiresAt,
             budget: budgetTracker,
+            modelUse: payload.modelUse,
+            credentialManager: credentialManager,
             invokeCorrelationId: envelope.id
         )
 
@@ -444,6 +480,7 @@ public actor JobManager {
             record.runTask?.cancel()
             record.heartbeatTask?.cancel()
             jobs[jobId]?.state = .cancelled
+            await credentialManager?.revokeAll(jobId: jobId)
         }
         await streamManager.shutdown()
         await leaseManager.stop()
@@ -472,6 +509,7 @@ public actor JobManager {
         updated.state = .cancelled
         jobs[jobId] = updated
         record.heartbeatTask?.cancel()
+        await credentialManager?.revokeAll(jobId: jobId)
     }
 
     private func runJob(
@@ -494,12 +532,13 @@ public actor JobManager {
         do {
             let result = try await handler.execute(invocation: invocation, context: context)
             try Task.checkCancellation()
+            let completedPayload = try toCompleted(jobId: jobId, result)
             try? await send(
                 Envelope(
                     sessionId: sessionId,
                     jobId: jobId,
                     correlationId: invokeId,
-                    payload: .jobCompleted(toCompleted(result))
+                    payload: .jobCompleted(completedPayload)
                 )
             )
             transition(jobId: jobId, to: .completed)
@@ -550,6 +589,7 @@ public actor JobManager {
             transition(jobId: jobId, to: .failed)
         }
         if let record = jobs[jobId] { record.heartbeatTask?.cancel() }
+        await credentialManager?.revokeAll(jobId: jobId)
     }
 
     private func transition(jobId: JobId, to state: JobState) {
@@ -559,12 +599,34 @@ public actor JobManager {
         }
     }
 
-    private func toCompleted(_ output: ToolOutput) -> JobCompletedPayload {
+    func recordResultChunk(jobId: JobId, resultId: String) {
+        guard var record = jobs[jobId] else { return }
+        if record.streamedResultId == nil {
+            record.streamedResultId = resultId
+            jobs[jobId] = record
+        }
+    }
+
+    private func toCompleted(jobId: JobId, _ output: ToolOutput) throws -> JobCompletedPayload {
+        let streamedResultId = jobs[jobId]?.streamedResultId
         switch output {
-        case .value(let value): return JobCompletedPayload(result: value)
+        case .value(let value):
+            if let streamedResultId {
+                throw ARCPError.invalidArgument(
+                    field: "result",
+                    detail: "job emitted result_chunk \(streamedResultId) and returned inline result"
+                )
+            }
+            return JobCompletedPayload(result: value)
         case .ref(let ref): return JobCompletedPayload(resultRef: ref)
         case .empty: return JobCompletedPayload()
         case .streamed(let resultId, let size, let summary):
+            if let streamedResultId, streamedResultId != resultId {
+                throw ARCPError.invalidArgument(
+                    field: "result_id",
+                    detail: "completed result_id \(resultId) does not match streamed \(streamedResultId)"
+                )
+            }
             return JobCompletedPayload(resultId: resultId, resultSize: size, summary: summary)
         }
     }
@@ -606,6 +668,10 @@ public actor JobManager {
         var lastEventSeq: UInt64 = 0
         var runTask: Task<Void, Never>?
         var heartbeatTask: Task<Void, Never>?
+        var leaseExpiresAt: Date?
+        var costBudget: CostBudget?
+        var modelUse: ModelUse?
+        var streamedResultId: String?
     }
 
     /// Build a read-only inventory of jobs known to this session.
@@ -673,6 +739,51 @@ struct ConcreteJobContext: JobContext, Sendable {
     let streamManager: StreamManager
     let manager: JobManager
     let isCancelledProvider: @Sendable () async -> Bool
+    let leaseExpiresAt: Date?
+    let budget: BudgetTracker
+    let modelUse: ModelUse?
+    let credentialManager: CredentialManager?
+    let invokeCorrelationId: MessageId
+
+    func checkLeaseExpiration() throws {
+        guard let leaseExpiresAt, Date() >= leaseExpiresAt else { return }
+        throw ARCPError.leaseExpired(
+            leaseId: LeaseId("lease_job_\(jobId.rawValue)"),
+            expiredAt: leaseExpiresAt
+        )
+    }
+
+    func charge(name: String, amount: Double, currency: String) async throws {
+        let remaining = try budget.charge(currency: currency, amount: amount)
+        let dims: [String: JSONValue] = ["currency": .string(currency)]
+        try await metric(name: name, value: amount, unit: currency, dims: dims)
+        try await metric(
+            name: "cost.budget.remaining",
+            value: remaining.isFinite ? remaining : Double.greatestFiniteMagnitude,
+            unit: currency,
+            dims: dims
+        )
+    }
+
+    func checkModelUse(_ model: String) throws {
+        try ModelUsePolicy.check(modelUse, model: model)
+    }
+
+    func rotateCredential(id: String) async throws -> ProvisionedCredential {
+        guard let credentialManager else {
+            throw ARCPError.failedPrecondition(detail: "credential provisioner is not configured")
+        }
+        let credential = try await credentialManager.rotate(jobId: jobId, credentialId: id)
+        try await log(
+            level: .info,
+            message: "credential rotated",
+            attributes: [
+                "phase": .string("credential_rotated"),
+                "credential_id": .string(id),
+            ]
+        )
+        return credential
+    }
 
     func reportProgress(
         percent: Double?,
@@ -811,6 +922,7 @@ struct ConcreteJobContext: JobContext, Sendable {
         encoding: ResultChunkEncoding,
         more: Bool
     ) async throws {
+        await manager.recordResultChunk(jobId: jobId, resultId: resultId)
         try await sendEnvelope(
             Envelope(
                 sessionId: sessionId,

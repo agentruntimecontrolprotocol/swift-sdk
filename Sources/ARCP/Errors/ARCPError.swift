@@ -61,6 +61,9 @@ public enum ARCPError: Error, Sendable {
     /// Operation attempted with a revoked lease.
     case leaseRevoked(leaseId: LeaseId, reason: String)
 
+    /// A child lease attempted to exceed the parent authority envelope.
+    case leaseSubsetViolation(detail: String)
+
     /// Stream or subscription dropped due to overflow (RFC §11.2 / §13.4).
     case backpressureOverflow(streamOrSubscription: String, dropped: Int)
 
@@ -97,6 +100,7 @@ extension ARCPError {
         case .heartbeatLost: return .heartbeatLost
         case .leaseExpired: return .leaseExpired
         case .leaseRevoked: return .leaseRevoked
+        case .leaseSubsetViolation: return .leaseSubsetViolation
         case .backpressureOverflow: return .backpressureOverflow
         case .budgetExhausted: return .budgetExhausted
         case .agentVersionNotAvailable: return .agentVersionNotAvailable
@@ -155,6 +159,8 @@ extension ARCPError {
             return "Lease \(leaseId) expired at \(at)"
         case .leaseRevoked(let leaseId, let reason):
             return "Lease \(leaseId) revoked: \(reason)"
+        case .leaseSubsetViolation(let detail):
+            return "Lease subset violation: \(detail)"
         case .backpressureOverflow(let target, let dropped):
             return "Backpressure overflow on \(target); dropped \(dropped)"
         case .budgetExhausted(let detail):
@@ -188,6 +194,8 @@ extension ARCPError {
             ]
         case .leaseRevoked(let leaseId, let reason):
             return ["lease_id": .string(leaseId.rawValue), "reason": .string(reason)]
+        case .leaseSubsetViolation(let detail):
+            return ["detail": .string(detail)]
         case .backpressureOverflow(let target, let dropped):
             return ["target": .string(target), "dropped": .int(Int64(dropped))]
         case .agentVersionNotAvailable(let agent, let version):

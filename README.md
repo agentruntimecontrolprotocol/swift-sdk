@@ -1,7 +1,7 @@
 # ARCP — Swift SDK
 
 Swift 6 reference implementation of the **Agent Runtime Control Protocol**
-([ARCP spec](https://github.com/agentruntimecontrolprotocol/spec/blob/main/docs/draft-arcp-1.1.md)). Wire version: **1.0**. SDK version: **0.1.0**.
+([ARCP spec](https://github.com/agentruntimecontrolprotocol/spec/blob/main/docs/draft-arcp-1.1.md)). Wire version: **1.1**. SDK version: **0.1.0**.
 
 ## Status
 
@@ -40,7 +40,7 @@ swift run sample-01-minimal-session
 
 Expected output:
 ```
-Sample 01 — minimal session (wire 1.0)
+Sample 01 — minimal session (wire 1.1)
 session opened: sess_01...
 pong nonce: hello
 session closed

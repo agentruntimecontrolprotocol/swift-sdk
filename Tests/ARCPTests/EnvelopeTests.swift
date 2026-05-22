@@ -18,7 +18,7 @@ struct EnvelopeTests {
         )
         let json = try env.toJSON()
         let raw = String(decoding: json, as: UTF8.self)
-        #expect(raw.contains("\"arcp\":\"1.0\""))
+        #expect(raw.contains("\"arcp\":\"1.1\""))
         #expect(raw.contains("\"id\":\"msg_001\""))
         #expect(raw.contains("\"type\":\"ack\""))
         #expect(raw.contains("\"session_id\":\"sess_123\""))

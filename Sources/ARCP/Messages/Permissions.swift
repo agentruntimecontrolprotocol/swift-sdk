@@ -78,6 +78,14 @@ public struct CostBudget: Sendable, Hashable, Codable {
 
     public var isEmpty: Bool { amounts.isEmpty }
 
+    public static func from(_ amounts: [String: Double]) -> CostBudget {
+        CostBudget(
+            amounts: amounts
+                .sorted { $0.key < $1.key }
+                .map { CostBudgetAmount(currency: $0.key, amount: $0.value) }
+        )
+    }
+
     /// Declared maximum for `currency`, if any.
     public func max(for currency: String) -> Double? {
         amounts.first(where: { $0.currency == currency })?.amount
@@ -158,17 +166,30 @@ public struct PermissionGrantPayload: Sendable, Codable, Hashable {
     public var resource: String
     public var operation: String
     public var leaseSeconds: Int
+    public var costBudget: CostBudget?
+    public var modelUse: ModelUse?
 
-    public init(permission: String, resource: String, operation: String, leaseSeconds: Int) {
+    public init(
+        permission: String,
+        resource: String,
+        operation: String,
+        leaseSeconds: Int,
+        costBudget: CostBudget? = nil,
+        modelUse: ModelUse? = nil
+    ) {
         self.permission = permission
         self.resource = resource
         self.operation = operation
         self.leaseSeconds = leaseSeconds
+        self.costBudget = costBudget
+        self.modelUse = modelUse
     }
 
     enum CodingKeys: String, CodingKey {
         case permission, resource, operation
         case leaseSeconds = "lease_seconds"
+        case costBudget = "cost_budget"
+        case modelUse = "model_use"
     }
 }
 
@@ -192,25 +213,33 @@ public struct LeaseGrantedPayload: Sendable, Codable, Hashable {
     public var resource: String
     public var operation: String
     public var expiresAt: Date
+    public var costBudget: CostBudget?
+    public var modelUse: ModelUse?
 
     public init(
         leaseId: LeaseId,
         permission: String,
         resource: String,
         operation: String,
-        expiresAt: Date
+        expiresAt: Date,
+        costBudget: CostBudget? = nil,
+        modelUse: ModelUse? = nil
     ) {
         self.leaseId = leaseId
         self.permission = permission
         self.resource = resource
         self.operation = operation
         self.expiresAt = expiresAt
+        self.costBudget = costBudget
+        self.modelUse = modelUse
     }
 
     enum CodingKeys: String, CodingKey {
         case leaseId = "lease_id"
         case permission, resource, operation
         case expiresAt = "expires_at"
+        case costBudget = "cost_budget"
+        case modelUse = "model_use"
     }
 }
 

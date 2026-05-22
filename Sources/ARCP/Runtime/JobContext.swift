@@ -32,6 +32,12 @@ public protocol JobContext: Sendable {
     /// or below zero before the charge.
     func charge(name: String, amount: Double, currency: String) async throws
 
+    /// Check a model identifier against the job's `model.use` lease.
+    func checkModelUse(_ model: String) throws
+
+    /// Rotate a lease-bound provisioned credential for this job.
+    func rotateCredential(id: String) async throws -> ProvisionedCredential
+
     /// Emit `job.progress`. Percent must be 0...100 if provided. RFC §10.1.
     func reportProgress(
         percent: Double?, message: String?, attributes: [String: JSONValue]?)

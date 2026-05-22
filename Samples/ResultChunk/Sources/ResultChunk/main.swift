@@ -3,7 +3,7 @@
 // Hosts a `report-builder` agent that emits its final result as a
 // sequence of `job.result_chunk` events, then completes with a
 // `job.completed` referencing the streamed `result_id`. The client
-// uses `ResultChunkAssembler` to reassemble the chunks.
+// uses `ARCPClient.resultChunks(for:)` to reassemble the chunks.
 
 import ARCP
 import Foundation
@@ -22,6 +22,7 @@ struct ReportBuilder: ToolHandler {
         }()
         let resultId = "res_\(invocation.jobId.rawValue)"
         var bytes: UInt64 = 0
+        try await Task.sleep(for: .milliseconds(50))
         for i in 0..<total {
             let more = (i + 1) < total
             let fragment = "Section \(i + 1): lorem ipsum dolor sit amet\n"
@@ -72,36 +73,21 @@ struct ResultChunkExample {
         )
         try await client.send(invoke)
 
-        var assembler = ResultChunkAssembler()
-        var chunkCount = 0
-        var done = false
+        var jobId: JobId?
         for await env in client.unhandled {
-            switch env.payload {
-            case .jobAccepted(let p):
+            if case .jobAccepted(let p) = env.payload {
+                jobId = p.jobId
                 print("job_id=\(p.jobId.rawValue)")
-            case .jobResultChunk(let chunk):
-                chunkCount += 1
-                print(
-                    "result_chunk seq=\(chunk.chunkSeq) more=\(chunk.more) "
-                        + "len=\(chunk.data.utf8.count)B"
-                )
-                _ = try assembler.push(chunk)
-            case .jobCompleted(let p):
-                print(
-                    "job.completed result_id=\(p.resultId ?? "nil") "
-                        + "result_size=\(p.resultSize.map(String.init) ?? "nil") "
-                        + "summary=\(p.summary ?? "nil")"
-                )
-                done = true
-            default: break
+                break
             }
-            if done { break }
         }
 
-        let assembled = try assembler.finishUTF8()
+        guard let jobId else { throw ARCPError.aborted(reason: "job was not accepted") }
+        let stream = await client.resultChunks(for: jobId)
+        let assembled = try await stream.collectUTF8()
         let preview = String(assembled.prefix(40))
         print(
-            "assembled \(chunkCount) chunks into \(assembled.utf8.count) "
+            "assembled streamed result into \(assembled.utf8.count) "
                 + "bytes (head: \(preview))"
         )
 

@@ -23,6 +23,8 @@ public actor ARCPRuntime {
     private var registeredHandlers: [any ToolHandler] = []
     private let challengeRequired: Bool
     private let challengeNonce: @Sendable () -> String
+    private let credentialProvisioner: (any CredentialProvisioner)?
+    private let credentialRetention: any CredentialRetention
 
     public init(
         identity: IdentityBlock,
@@ -30,22 +32,38 @@ public actor ARCPRuntime {
         auth: any AuthValidator,
         requiredCapabilities: Set<String> = [],
         challengeRequired: Bool = false,
+        credentialProvisioner: (any CredentialProvisioner)? = nil,
+        credentialRetention: any CredentialRetention = InMemoryCredentialRetention(),
         eventLog: EventLog? = nil,
         extensionRegistry: ExtensionRegistry? = nil,
         challengeNonce: @escaping @Sendable () -> String = { Ulid.next() }
     ) throws {
+        if supportedCapabilities.provisionedCredentials && credentialProvisioner == nil {
+            throw ARCPError.failedPrecondition(
+                detail: "provisioned_credentials advertised without credential provisioner"
+            )
+        }
+        var effectiveCapabilities = supportedCapabilities
+        if credentialProvisioner != nil {
+            effectiveCapabilities.provisionedCredentials = true
+            effectiveCapabilities.modelUse = true
+        } else {
+            effectiveCapabilities.provisionedCredentials = false
+        }
         self.identity = identity
-        self.supportedCapabilities = supportedCapabilities
+        self.supportedCapabilities = effectiveCapabilities
         self.auth = auth
         self.negotiator = CapabilityNegotiator(
-            runtimeSupported: supportedCapabilities,
+            runtimeSupported: effectiveCapabilities,
             required: requiredCapabilities
         )
         self.challengeRequired = challengeRequired
         self.challengeNonce = challengeNonce
+        self.credentialProvisioner = credentialProvisioner
+        self.credentialRetention = credentialRetention
         self.eventLog = try eventLog ?? EventLog.inMemory()
         self.extensionRegistry =
-            extensionRegistry ?? ExtensionRegistry(advertised: supportedCapabilities.extensions)
+            extensionRegistry ?? ExtensionRegistry(advertised: effectiveCapabilities.extensions)
         self.subscriptionManager = SubscriptionManager(eventLog: self.eventLog)
         self.artifactStore = ArtifactStore(eventLog: self.eventLog)
         self.log = Logger(label: "arcp.runtime")
@@ -81,6 +99,13 @@ public actor ARCPRuntime {
         sessions[info.sessionId] = info
         let jobManager = JobManager(
             sessionId: info.sessionId,
+            credentialManager: credentialProvisioner.map {
+                CredentialManager(
+                    provisioner: $0,
+                    retention: credentialRetention,
+                    sessionId: info.sessionId
+                )
+            },
             send: { [weak self] envelope in
                 guard let self else { return }
                 try await self.send(envelope, transport: transport)
@@ -426,6 +451,8 @@ public actor ARCPRuntime {
             limit: payload.limit,
             cursor: payload.cursor
         )
+        // ARCP v1.1 §14: provisioned credential values never appear on
+        // introspection surfaces; JobListEntry intentionally has no field.
         let response = SessionJobsPayload(
             requestId: envelope.id.rawValue,
             jobs: entries,

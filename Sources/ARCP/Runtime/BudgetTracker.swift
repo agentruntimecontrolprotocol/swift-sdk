@@ -55,10 +55,8 @@ public final class BudgetTracker: @unchecked Sendable {
     /// Charge `amount` to `currency`. Returns the remaining counter
     /// after the decrement. Negative or non-finite amounts raise
     /// ``ARCPError/invalidArgument(field:detail:)``. When the counter
-    /// is at or below zero before the charge the call raises
-    /// ``ARCPError/budgetExhausted(detail:)`` (matching rust-sdk §9.6
-    /// ordering — the agent sees BUDGET_EXHAUSTED on the operation
-    /// that would overspend, not the one that pushed past zero).
+    /// would drop below zero the call raises
+    /// ``ARCPError/budgetExhausted(detail:)``.
     ///
     /// Currencies absent from the declared lease are silently ignored
     /// and return `Double.infinity`.
@@ -77,7 +75,7 @@ public final class BudgetTracker: @unchecked Sendable {
             return .infinity
         }
         let remainingBefore = entry.max - entry.consumed
-        if remainingBefore <= 0 {
+        if remainingBefore <= 0 || amount > remainingBefore {
             throw ARCPError.budgetExhausted(
                 detail: "\(currency) budget exhausted (remaining=\(remainingBefore))"
             )

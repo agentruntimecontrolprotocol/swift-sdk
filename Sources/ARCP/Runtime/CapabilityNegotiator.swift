@@ -37,6 +37,11 @@ public struct CapabilityNegotiator: Sendable {
             scheduledJobs: runtimeSupported.scheduledJobs && clientOffered.scheduledJobs,
             anonymous: runtimeSupported.anonymous && clientOffered.anonymous,
             interrupt: runtimeSupported.interrupt && clientOffered.interrupt,
+            resultChunk: runtimeSupported.resultChunk && clientOffered.resultChunk,
+            costBudget: runtimeSupported.costBudget && clientOffered.costBudget,
+            modelUse: runtimeSupported.modelUse && clientOffered.modelUse,
+            provisionedCredentials: runtimeSupported.provisionedCredentials
+                && clientOffered.provisionedCredentials,
             heartbeatRecovery: runtimeSupported.heartbeatRecovery,
             heartbeatIntervalSeconds: max(
                 runtimeSupported.heartbeatIntervalSeconds,
@@ -70,6 +75,11 @@ public struct CapabilityNegotiator: Sendable {
         case "scheduled_jobs": return runtime.scheduledJobs && client.scheduledJobs
         case "anonymous": return runtime.anonymous && client.anonymous
         case "interrupt": return runtime.interrupt && client.interrupt
+        case "result_chunk": return runtime.resultChunk && client.resultChunk
+        case "cost_budget", "cost.budget": return runtime.costBudget && client.costBudget
+        case "model_use", "model.use": return runtime.modelUse && client.modelUse
+        case "provisioned_credentials":
+            return runtime.provisionedCredentials && client.provisionedCredentials
         default:
             return runtime.extras[key] == true && client.extras[key] == true
         }

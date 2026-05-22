@@ -15,6 +15,7 @@ public actor ARCPClient {
     private var pendingPongs: [MessageId: CheckedContinuation<PongPayload, any Error>] = [:]
     private var pendingByInvoke: [MessageId: JobInvocationState] = [:]
     private var invokeByJobId: [JobId: MessageId] = [:]
+    private var resultChunkStreams: [JobId: ResultChunkStream] = [:]
     private var unhandledContinuation: AsyncStream<Envelope>.Continuation?
     private var humanInputHandler: any HumanInputHandler = DefaultHumanInputHandler()
     private var permissionHandler: any PermissionHandler = DefaultPermissionHandler()
@@ -148,13 +149,13 @@ public actor ARCPClient {
     private func startDispatcher() {
         dispatcher = Task { [mailbox] in
             while let envelope = await mailbox.next() {
-                self.dispatch(envelope: envelope)
+                await self.dispatch(envelope: envelope)
             }
             self.finishUnhandled()
         }
     }
 
-    private func dispatch(envelope: Envelope) {
+    private func dispatch(envelope: Envelope) async {
         switch envelope.payload {
         case .pong(let payload):
             if let id = envelope.correlationId,
@@ -169,6 +170,8 @@ public actor ARCPClient {
                 state.jobId = payload.jobId
                 pendingByInvoke[invokeId] = state
                 invokeByJobId[payload.jobId] = invokeId
+            } else {
+                unhandledContinuation?.yield(envelope)
             }
         case .jobProgress(let payload):
             if let jobId = envelope.jobId, let invokeId = invokeByJobId[jobId],
@@ -177,17 +180,43 @@ public actor ARCPClient {
                 state.progressContinuation?.yield(payload)
             }
         case .jobCompleted(let payload):
-            if let jobId = envelope.jobId, let invokeId = invokeByJobId.removeValue(forKey: jobId) {
-                resolve(invokeId: invokeId, outcome: .completed(payload))
+            if let jobId = envelope.jobId {
+                if let invokeId = invokeByJobId.removeValue(forKey: jobId) {
+                    resolve(invokeId: invokeId, outcome: .completed(payload))
+                } else {
+                    unhandledContinuation?.yield(envelope)
+                }
+                await finishResultStream(jobId)
+            } else {
+                unhandledContinuation?.yield(envelope)
             }
         case .jobFailed(let payload):
-            if let jobId = envelope.jobId, let invokeId = invokeByJobId.removeValue(forKey: jobId) {
-                resolve(invokeId: invokeId, outcome: .failed(payload.error))
+            if let jobId = envelope.jobId {
+                if let invokeId = invokeByJobId.removeValue(forKey: jobId) {
+                    resolve(invokeId: invokeId, outcome: .failed(payload.error))
+                } else {
+                    unhandledContinuation?.yield(envelope)
+                }
+                await failResultStream(jobId, error: ARCPError.unknown(message: payload.error.message))
+            } else {
+                unhandledContinuation?.yield(envelope)
             }
         case .jobCancelled(let payload):
-            if let jobId = envelope.jobId, let invokeId = invokeByJobId.removeValue(forKey: jobId) {
-                resolve(invokeId: invokeId, outcome: .cancelled(payload))
+            if let jobId = envelope.jobId {
+                if let invokeId = invokeByJobId.removeValue(forKey: jobId) {
+                    resolve(invokeId: invokeId, outcome: .cancelled(payload))
+                } else {
+                    unhandledContinuation?.yield(envelope)
+                }
+                await failResultStream(jobId, error: ARCPError.cancelled(operation: "job", reason: payload.reason))
+            } else {
+                unhandledContinuation?.yield(envelope)
             }
+        case .jobResultChunk(let payload):
+            if let jobId = envelope.jobId, let stream = resultChunkStreams[jobId] {
+                try? await stream.push(payload)
+            }
+            unhandledContinuation?.yield(envelope)
         case .toolError(let payload):
             if let invokeId = envelope.correlationId, pendingByInvoke[invokeId] != nil {
                 resolve(invokeId: invokeId, outcome: .failed(payload.error))
@@ -286,6 +315,23 @@ public actor ARCPClient {
         default:
             unhandledContinuation?.yield(envelope)
         }
+    }
+
+    public func resultChunks(for jobId: JobId) -> ResultChunkStream {
+        if let existing = resultChunkStreams[jobId] { return existing }
+        let stream = ResultChunkStream()
+        resultChunkStreams[jobId] = stream
+        return stream
+    }
+
+    private func finishResultStream(_ jobId: JobId) async {
+        guard let stream = resultChunkStreams.removeValue(forKey: jobId) else { return }
+        await stream.finish()
+    }
+
+    private func failResultStream(_ jobId: JobId, error: any Error) async {
+        guard let stream = resultChunkStreams.removeValue(forKey: jobId) else { return }
+        await stream.fail(error)
     }
 
     /// Register a custom human input handler.
@@ -392,6 +438,9 @@ public actor ARCPClient {
     public func invoke(
         tool: String,
         arguments: JSONValue,
+        costBudget: CostBudget? = nil,
+        modelUse: ModelUse? = nil,
+        leaseConstraints: LeaseConstraints? = nil,
         idempotencyKey: IdempotencyKey? = nil
     ) async throws -> InvocationResult {
         let invokeId = MessageId.random()
@@ -406,7 +455,15 @@ public actor ARCPClient {
             id: invokeId,
             sessionId: info.sessionId,
             idempotencyKey: idempotencyKey,
-            payload: .toolInvoke(ToolInvokePayload(tool: tool, arguments: arguments))
+            payload: .toolInvoke(
+                ToolInvokePayload(
+                    tool: tool,
+                    arguments: arguments,
+                    costBudget: costBudget,
+                    modelUse: modelUse,
+                    leaseConstraints: leaseConstraints
+                )
+            )
         )
         try await transport.send(envelope)
         let (outcome, jobId) = try await withCheckedThrowingContinuation { cont in

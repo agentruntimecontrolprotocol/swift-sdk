@@ -33,17 +33,20 @@ public struct ToolInvokePayload: Sendable, Codable, Hashable {
     public var tool: String
     public var arguments: JSONValue
     public var costBudget: CostBudget?
+    public var modelUse: ModelUse?
     public var leaseConstraints: LeaseConstraints?
 
     public init(
         tool: String,
         arguments: JSONValue,
         costBudget: CostBudget? = nil,
+        modelUse: ModelUse? = nil,
         leaseConstraints: LeaseConstraints? = nil
     ) {
         self.tool = tool
         self.arguments = arguments
         self.costBudget = costBudget
+        self.modelUse = modelUse
         self.leaseConstraints = leaseConstraints
     }
 
@@ -51,6 +54,7 @@ public struct ToolInvokePayload: Sendable, Codable, Hashable {
         case tool
         case arguments
         case costBudget = "cost_budget"
+        case modelUse = "model_use"
         case leaseConstraints = "lease_constraints"
     }
 }
@@ -98,11 +102,16 @@ public struct ToolErrorPayload: Sendable, Codable, Hashable {
 /// `job.accepted` payload. RFC §10.2.
 public struct JobAcceptedPayload: Sendable, Codable, Hashable {
     public var jobId: JobId
+    public var credentials: [ProvisionedCredential]?
 
-    public init(jobId: JobId) { self.jobId = jobId }
+    public init(jobId: JobId, credentials: [ProvisionedCredential]? = nil) {
+        self.jobId = jobId
+        self.credentials = credentials
+    }
 
     enum CodingKeys: String, CodingKey {
         case jobId = "job_id"
+        case credentials
     }
 }
 
