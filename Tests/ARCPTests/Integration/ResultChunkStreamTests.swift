@@ -32,8 +32,10 @@ private struct DelayedStreamingTool: ToolHandler {
     func execute(invocation: ToolInvocation, context: any JobContext) async throws -> ToolOutput {
         try await Task.sleep(for: .milliseconds(100))
         let resultId = "res_\(invocation.jobId.rawValue)"
-        try await context.emitResultChunk(resultId: resultId, chunkSeq: 0, data: "alpha", encoding: .utf8, more: true)
-        try await context.emitResultChunk(resultId: resultId, chunkSeq: 1, data: "-beta", encoding: .utf8, more: false)
+        try await context.emitResultChunk(
+            resultId: resultId, chunkSeq: 0, data: "alpha", encoding: .utf8, more: true)
+        try await context.emitResultChunk(
+            resultId: resultId, chunkSeq: 1, data: "-beta", encoding: .utf8, more: false)
         return .streamed(resultId: resultId, size: 10, summary: "joined")
     }
 }

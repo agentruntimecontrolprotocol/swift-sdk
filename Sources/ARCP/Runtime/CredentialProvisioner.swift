@@ -17,7 +17,9 @@ public struct LeaseSnapshot: Sendable, Hashable {
 }
 
 public protocol CredentialProvisioner: Sendable {
-    func issue(lease: LeaseSnapshot, jobId: JobId, sessionId: SessionId) async throws
+    func issue(
+        lease: LeaseSnapshot, jobId: JobId, sessionId: SessionId
+    ) async throws
         -> [ProvisionedCredential]
     func revoke(credentialId: String) async throws
 }
@@ -28,7 +30,9 @@ public actor InMemoryCredentialProvisioner: CredentialProvisioner {
 
     public init() {}
 
-    public func issue(lease: LeaseSnapshot, jobId: JobId, sessionId: SessionId) async throws
+    public func issue(
+        lease: LeaseSnapshot, jobId: JobId, sessionId: SessionId
+    ) async throws
         -> [ProvisionedCredential]
     {
         let suffix = issued.count

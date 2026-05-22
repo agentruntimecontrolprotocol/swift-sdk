@@ -207,7 +207,8 @@ public actor ARCPClient {
                 } else {
                     unhandledContinuation?.yield(envelope)
                 }
-                await failResultStream(jobId, error: ARCPError.cancelled(operation: "job", reason: payload.reason))
+                await failResultStream(
+                    jobId, error: ARCPError.cancelled(operation: "job", reason: payload.reason))
             } else {
                 unhandledContinuation?.yield(envelope)
             }

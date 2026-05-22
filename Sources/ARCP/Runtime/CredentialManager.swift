@@ -41,7 +41,9 @@ public actor CredentialManager {
         credentialsByJob.values.flatMap { $0.map(\.id) }.sorted()
     }
 
-    public func issueForJob(_ jobId: JobId, lease: LeaseSnapshot) async throws
+    public func issueForJob(
+        _ jobId: JobId, lease: LeaseSnapshot
+    ) async throws
         -> [ProvisionedCredential]
     {
         let credentials = try await provisioner.issue(lease: lease, jobId: jobId, sessionId: sessionId)
@@ -85,7 +87,7 @@ public actor CredentialManager {
             do {
                 try await provisioner.revoke(credentialId: credentialId)
                 return
-            } catch where attempt < 2 {
+            } catch  where attempt < 2 {
                 try? await Task.sleep(nanoseconds: delay)
                 delay *= 2
             } catch {

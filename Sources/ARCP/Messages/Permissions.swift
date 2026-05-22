@@ -80,7 +80,8 @@ public struct CostBudget: Sendable, Hashable, Codable {
 
     public static func from(_ amounts: [String: Double]) -> CostBudget {
         CostBudget(
-            amounts: amounts
+            amounts:
+                amounts
                 .sorted { $0.key < $1.key }
                 .map { CostBudgetAmount(currency: $0.key, amount: $0.value) }
         )
