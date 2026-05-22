@@ -1,7 +1,7 @@
 // Two scenarios over the §10.4 / §10.5 control surface.
 //
 // `cancel`    — cooperative termination with a deadline.
-// `interrupt` — pause and route through a human, no termination.
+// `interrupt` — pause a job; runtime acknowledges with an ack (RFC §10.5).
 
 import ARCP
 import Foundation
@@ -50,8 +50,8 @@ func cancelJob(
     throw ARCPError.aborted(reason: "no cancel reply")
 }
 
-/// Distinct from cancel: pauses the job (`blocked`), runtime emits
-/// `human.input.request`. Job is NOT terminated (RFC §10.5).
+/// Distinct from cancel: pauses the job (`blocked`), runtime emits an ack.
+/// Job is NOT terminated (RFC §10.5).
 func interruptJob(_ client: ARCPClient, jobId: JobId, prompt: String) async throws {
     try await client.send(
         Envelope(
@@ -94,11 +94,18 @@ func scenarioInterrupt() async throws {
     try await interruptJob(
         client, jobId: jobId,
         prompt: "Pause and ask before touching production tables.")
-    // Runtime now emits human.input.request; answer via Human-Input.
-    for await env in client.unhandled {
-        if case .humanInputRequest(let p) = env.payload, env.jobId == jobId {
-            print("awaiting human: \(p.prompt)")
+    // Runtime acknowledges the interrupt with an ack; job is now blocked.
+    for await env in client.unhandled where env.jobId == jobId {
+        if case .ack = env.payload {
+            print("interrupt acknowledged; job is paused")
             return
+        }
+        // Also surface any terminal event that races the interrupt.
+        switch env.payload {
+        case .jobCompleted, .jobFailed, .jobCancelled:
+            print("job reached terminal state: \(env.payload.typeName)")
+            return
+        default: continue
         }
     }
 }

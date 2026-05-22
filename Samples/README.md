@@ -11,6 +11,21 @@ mirroring the canonical `python-sdk/examples/` set.
 > stub. LLM and framework calls live in tiny stub files so the
 > protocol code in `main.swift` is what you read.
 
+## Runnable samples
+
+These seven samples are self-contained Swift executables — each has its own
+`Package.swift` and can be built and run with `swift run`:
+
+| Directory | Demonstrates | Spec |
+|-----------|--------------|------|
+| [`SubmitAndStream/`](./SubmitAndStream) | Full job lifecycle: `tool.invoke` → progress/log/metric events → `job.completed` | §13.1, §13.3, §14 |
+| [`AckBackpressure/`](./AckBackpressure) | High-frequency streaming agent; slow client triggers `backpressure` signal | §6.5, §11.2, §12 |
+| [`IdempotentRetry/`](./IdempotentRetry) | Same idempotency key submitted twice → same `job_id`; deduplication at the runtime | §7.2, §13.5 |
+| [`LeaseViolation/`](./LeaseViolation) | Out-of-scope write raises `PERMISSION_DENIED`; job survives the violation | §9.3, §15.4 |
+| [`CustomAuth/`](./CustomAuth) | `AuthValidator` with HMAC-SHA256 tokens; forged token rejected at handshake | §6.1, §8.2 |
+| [`Stdio/`](./Stdio) | `StdioTransport` over `Foundation.Pipe` pairs — in-process NDJSON wire | §4.2, §22 |
+| [`Tracing/`](./Tracing) | W3C `traceparent` injection, task-local propagation, client-side `trace.span` export | §10.3, §17.1 |
+
 ## The fourteen
 
 | Directory                            | Demonstrates                                                                       | Spec               |
@@ -26,8 +41,7 @@ mirroring the canonical `python-sdk/examples/` set.
 | [`Resumability/`](./Resumability)                         | **Actually crash and resume.** `exit(137)` mid-flight; second invocation resumes.  | §10, §19, §6.4     |
 | [`Reasoning-Streams/`](./Reasoning-Streams)               | `kind: thought` stream + a peer runtime that subscribes and delegates critiques.   | §11.4, §13, §14    |
 | [`Extensions/`](./Extensions)                             | Custom `arcpx.sdr.*.v1` extension namespace with correct unknown-message handling. | §21                |
-| [`Human-Input/`](./Human-Input)                           | `human.input.request` fanned across phone/email/Slack; first-wins resolution.      | §12                |
-| [`Cancellation/`](./Cancellation)                         | Cooperative `cancel` (terminate) vs `interrupt` (pause and ask).                   | §10.4–§10.5        |
+| [`Cancellation/`](./Cancellation)                         | Cooperative `cancel` (terminate) vs `interrupt` (pause, runtime acks).             | §10.4–§10.5        |
 | [`MCP/`](./MCP)                                           | ARCP runtime fronting an MCP server: `tool.invoke` → MCP `call_tool`.              | §20                |
 
 ## Conventions

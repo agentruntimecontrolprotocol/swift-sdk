@@ -4,7 +4,7 @@ Two scenarios that exercise the §10.4–§10.5 control surface that
 distinguishes ARCP from "agent over plain HTTP":
 
 - `cancel`: cooperative termination with a deadline.
-- `interrupt`: pause the job and route through a human, no termination.
+- `interrupt`: pause the job; runtime acknowledges, no termination (RFC §10.5).
 
 ## Before ARCP
 
@@ -31,8 +31,8 @@ try await interruptJob(client, jobId: jid,
 
 - `cancel` cooperative contract — RFC §10.4 (`cancel.accepted` /
   `cancel.refused`, `deadline_ms`, escalation to `ABORTED`).
-- `interrupt` (distinct from cancel) — §10.5; emits
-  `human.input.request`, leaves the job in `blocked`.
+- `interrupt` (distinct from cancel) — §10.5; transitions the job to
+  `blocked`; runtime sends an `ack`.
 - `capabilities.interrupt: false` fallback to `cancel` (§10.5).
 
 ## File tour
@@ -43,7 +43,7 @@ try await interruptJob(client, jobId: jid,
 
 ## Variations
 
-- Pair `interrupt` with Human-Input for a working pause-and-ask loop.
+- After an `interrupt` ack, send a `resume` envelope to unblock the job.
 - Send `cancel` against a `stream_id` instead of a `job_id` to
   terminate just one stream — terminal is a `stream.error` with
   `code: CANCELLED` (§10.4).
