@@ -23,9 +23,9 @@ let package = Package(
         // Pin under 5.3.0: jwt-kit 5.3+ adds MLDSA support that pulls in
         // CryptoKit types only available on Swift 6.2+, but the SDK still
         // targets Swift 6.1 as the floor.
-        .package(url: "https://github.com/vapor/jwt-kit.git", "5.1.0"..<"5.3.0"),
+        .package(url: "https://github.com/vapor/jwt-kit.git", "5.1.0"..<"6.0.0"),
         .package(url: "https://github.com/stephencelis/SQLite.swift.git", from: "0.15.3"),
-        .package(url: "https://github.com/apple/swift-format.git", from: "600.0.0"),
+        .package(url: "https://github.com/apple/swift-format.git", from: "602.0.0"),
         .package(url: "https://github.com/swiftlang/swift-docc-plugin.git", from: "1.4.0"),
     ],
     targets: [
