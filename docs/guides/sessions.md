@@ -8,14 +8,13 @@ when either side sends `session.close` or the transport closes.
 ```
 client                          runtime
   │── session.open ──────────────▶│  auth block + capabilities
-  │◀─ session.challenge ──────────│  nonce  (if challengeRequired)
-  │── session.auth ───────────────▶│  signed token  (if challenged)
-  │◀─ session.accepted ───────────│  negotiated capabilities
+  │◀─ session.challenge ──────────│  nonce  (only if challengeRequired)
+  │── session.authenticate ──────▶│  signed token  (only if challenged)
+  │◀─ session.accepted ───────────│  session id + runtime identity + negotiated capabilities
   │
   │  [normal operation]
   │
   │── session.close ──────────────▶│
-  │◀─ session.close ──────────────│
 ```
 
 ## Opening a session (client)
@@ -24,7 +23,7 @@ client                          runtime
 let client = try await ARCPClient.open(
     transport: transport,
     auth: AuthBlock(scheme: .bearer, token: "secret"),
-    client: IdentityBlock(name: "my-client", version: "1.0"),
+    client: IdentityBlock(kind: "my-client", version: "1.0"),
     capabilities: Capabilities()
 )
 
@@ -32,14 +31,15 @@ let client = try await ARCPClient.open(
 print(client.info.negotiatedCapabilities)
 ```
 
-`ARCPClient.open` throws `ARCPError.unauthenticated` if the handshake
-is rejected or times out.
+`ARCPClient.open` throws `ARCPError.unauthenticated` if the runtime
+rejects auth, and `ARCPError.invalidArgument` if the runtime sends an
+unexpected envelope before `session.accepted`.
 
 ## Accepting a session (server)
 
 ```swift
 let info = try await runtime.acceptSession(over: transport)
-print("session \(info.sessionId) from \(info.principal?.subject ?? "anon")")
+print("session \(info.sessionId) from \(info.principal.subject)")
 ```
 
 `acceptSession` returns once `session.close` is received or the
@@ -65,25 +65,27 @@ let pong = try await client.ping(nonce: "hello")
 ```
 
 Ping confirms the session is alive. The runtime echoes the nonce in
-`pong.nonce`.
+`pong.nonce`. The default timeout is 5 seconds; pass `timeout:` to
+override.
 
 ## Listing open sessions
 
 ```swift
 let sessions = await runtime.openSessions
 for info in sessions {
-    print(info.sessionId, info.principal?.subject ?? "anon")
+    print(info.sessionId, info.principal.subject)
 }
 ```
 
 ## Closing
 
 ```swift
-try await client.close()   // sends session.close, waits for echo, cleans up
+await client.close()   // sends session.close, tears down the transport
 ```
 
-The runtime closes automatically if the transport drops without
-`session.close`.
+`close` takes an optional `reason:` string. The runtime stops the
+dispatch loop and returns from `acceptSession` when it sees
+`session.close` (or when the transport drops).
 
 ## SessionInfo
 
@@ -91,8 +93,10 @@ The runtime closes automatically if the transport drops without
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `sessionId` | `SessionId` | ULID-prefixed ID (`sess_01…`) |
-| `principal` | `AuthenticatedPrincipal?` | Authenticated identity, if any |
+| `sessionId` | `SessionId` | ULID-prefixed ID (`sess_01...`) |
+| `principal` | `AuthenticatedPrincipal` | Authenticated identity (subject + trust level) |
+| `clientIdentity` | `IdentityBlock` | What the client sent in `session.open` |
+| `runtimeIdentity` | `IdentityBlock` | What the runtime sent back in `session.accepted` |
 | `negotiatedCapabilities` | `Capabilities` | Intersection of client and runtime caps |
 | `openedAt` | `Date` | When the session was accepted |
 

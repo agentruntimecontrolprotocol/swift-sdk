@@ -11,14 +11,17 @@ struct SummariseHandler: ToolHandler {
     let name = "summarise"
 
     func execute(invocation: ToolInvocation, context: any JobContext) async throws -> ToolOutput {
-        let text = invocation.arguments["text"]?.stringValue ?? ""
+        guard case .object(let args) = invocation.arguments,
+              case .string(let text) = args["text"] else {
+            throw ARCPError.invalidArgument(field: "text", detail: "missing or not a string")
+        }
         let summary = await mySummariser(text)                  // your logic
         try await context.reportProgress(percent: 100, message: "done", attributes: nil)
         return .value(.string(summary))
     }
 }
 
-runtime.register(SummariseHandler())
+await runtime.register(SummariseHandler())
 ```
 
 Handlers run inside a Swift `Task`. Structured concurrency is the
@@ -27,36 +30,45 @@ natural model for fan-out or sequential steps.
 ## Invoking a tool (client)
 
 ```swift
-// Fire-and-forget: wait for completion
-let (outcome, jobId) = try await client.invoke(
+let invocation = try await client.invoke(
     tool: "summarise",
     arguments: .object(["text": .string(input)])
 )
 
-switch outcome {
-case .completed(let result):
-    print(result.result ?? "no result")
+switch invocation.outcome {
+case .completed(let payload):
+    print(payload.result ?? .null)
 case .failed(let err):
-    print("error:", err.code, err.message)
+    print("error:", err.code.rawValue, err.message)
 case .cancelled(let c):
-    print("cancelled:", c.reason ?? "")
+    print("cancelled:", c.reason)
 }
 ```
 
-### With a progress stream
+`invoke` returns an `InvocationResult` with three fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `jobId` | `JobId?` | Server-assigned id (set as soon as `job.accepted` arrives) |
+| `outcome` | `JobOutcome` | Terminal `.completed` / `.failed` / `.cancelled` |
+| `progress` | `AsyncStream<JobProgressPayload>` | Drained progress events; finishes alongside the outcome |
+
+### Consuming progress
 
 ```swift
-let (progressStream, jobId) = try await client.invokeWithProgress(
-    tool: "summarise",
-    arguments: .object(["text": .string(input)])
-)
+let invocation = try await client.invoke(tool: "summarise", arguments: args)
 
-for await progress in progressStream {
-    if let pct = progress.percent { print("  \(pct)%") }
-    if let msg = progress.message { print(" ", msg) }
+let progressTask = Task {
+    for await p in invocation.progress {
+        if let pct = p.percent { print("  \(Int(pct))%") }
+        if let msg = p.message { print(" ", msg) }
+    }
 }
 
-let outcome = await progressStream.outcome   // JobOutcome
+// `outcome` is already set when `invoke` returns; the progress stream
+// finishes alongside the terminal envelope.
+_ = invocation.outcome
+progressTask.cancel()
 ```
 
 ### Idempotency key
@@ -65,7 +77,7 @@ Retry safely by supplying the same idempotency key:
 
 ```swift
 let key = IdempotencyKey("my-dedupe-key")
-let (outcome, _) = try await client.invoke(
+let invocation = try await client.invoke(
     tool: "process",
     arguments: args,
     idempotencyKey: key
@@ -78,19 +90,24 @@ returns the same `job_id` and queues no duplicate work
 
 ## Job states
 
+`JobState` (RFC §10):
+
 ```
-submitted → accepted → running → completed
-                              ↘ failed
-                              ↘ cancelled
+accepted → queued → running ──▶ completed
+                        ├────▶ failed
+                        ├────▶ cancelled
+                        ├────▶ blocked   (transient)
+                        └────▶ paused    (transient)
 ```
 
-State transitions are logged to the `EventLog`. Retrieve them via
-`runtime.eventLog.query(sessionId:)`.
+State transitions are logged to the `EventLog`. Replay them via
+`runtime.eventLog.replay(sessionId:after:)`.
 
 ## Cancellation
 
-Cooperative: call `context.checkCancellation()` at safe points in the
-handler. The client cancels with `client.cancel(jobId:)`.
+Cooperative: call `try await context.checkCancellation()` at safe
+points in the handler. The client cancels with
+`client.cancelJob(_:reason:deadlineMs:)`.
 
 ```swift
 func execute(invocation: ToolInvocation, context: any JobContext) async throws -> ToolOutput {
@@ -102,37 +119,61 @@ func execute(invocation: ToolInvocation, context: any JobContext) async throws -
 }
 ```
 
+```swift
+try await client.cancelJob(jobId, reason: "user requested", deadlineMs: 5_000)
+```
+
 The [`Cancellation` sample](../../Samples/Cancellation) demonstrates
-both cooperative cancel and interrupt.
+the full request/observe loop.
 
 ## Interrupts
 
-An interrupt is a temporary pause signal. The handler receives a
-`job.interrupt` envelope; the runtime sends `ack` when the handler
-acknowledges it. Different from cancellation — the job can resume after
-the interrupt is handled.
+An interrupt is a separate control signal; the runtime delivers
+`job.interrupt` to the handler without changing the job's terminal
+disposition. Different from cancellation — the job continues running
+once the interrupt is observed. See `interrupt` capability flag in
+`Capabilities` and the runtime's `handleInterrupt` path.
 
 ## Listing jobs
 
+`session.list_jobs` (ARCP v1.1 §6.6) is exposed via the lower-level
+`send`/`unhandled` API:
+
 ```swift
-let jobs = try await client.listJobs()
-for job in jobs { print(job.jobId, job.status) }
+let requestId = MessageId.random()
+try await client.send(
+    Envelope(
+        id: requestId,
+        sessionId: client.info.sessionId,
+        payload: .sessionListJobs(
+            SessionListJobsPayload(limit: 50)
+        )
+    )
+)
+
+for await envelope in client.unhandled {
+    guard envelope.correlationId == requestId,
+          case .sessionJobs(let payload) = envelope.payload else { continue }
+    for entry in payload.jobs {
+        print(entry.jobId, entry.agent, entry.status)
+    }
+    break
+}
 ```
+
+See the [`ListJobs` sample](../../Samples/ListJobs).
 
 ## Heartbeats
 
-The runtime expects periodic heartbeats from long-running handlers.
-The default heartbeat interval is 30 seconds. If the runtime stops
-receiving heartbeats it emits `HEARTBEAT_LOST` and cancels the job.
+The runtime emits `job.heartbeat` envelopes (carrying `sequence`,
+`deadlineMs`, and `JobState`) automatically while a handler runs. The
+default heartbeat interval is 30 seconds and is configurable on
+`Capabilities.heartbeatIntervalSeconds`. If the runtime stops receiving
+acks within the configured window it emits `HEARTBEAT_LOST` and
+transitions the job to `failed`.
 
-```swift
-func execute(invocation: ToolInvocation, context: any JobContext) async throws -> ToolOutput {
-    for step in longPipeline {
-        try await context.heartbeat()    // resets the heartbeat timer
-        process(step)
-    }
-    return .value(result)
-}
-```
+Handlers don't call a heartbeat method directly — keep the work
+cooperative (`Task.yield()` inside CPU-bound loops) so the runtime's
+heartbeat task gets time to publish.
 
 See the [`Heartbeats` sample](../../Samples/Heartbeats).

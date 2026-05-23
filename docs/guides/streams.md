@@ -21,19 +21,21 @@ func execute(invocation: ToolInvocation, context: any JobContext) async throws -
 }
 ```
 
-The runtime emits `stream.open` on the first chunk, `stream.chunk` for
-each fragment, and `stream.closed` when `close(reason:)` is called.
+The runtime emits `stream.open` when `openStream` is called,
+`stream.chunk` for each fragment, and `stream.close` when
+`close(reason:)` is called. Errors emitted from the handler surface as
+`stream.error`.
 
 ## Stream kinds
 
-| Kind | `StreamKind` case | Typical content-type |
-|------|-------------------|----------------------|
-| Text | `.text` | `text/plain`, `text/markdown` |
-| Event | `.event` | `application/json` |
-| Log | `.log` | `text/plain` |
-| Thought | `.thought` | `text/markdown` |
-| Metric | `.metric` | `application/json` |
-| Binary | `.base64Binary` | `application/octet-stream` |
+| `StreamKind` | Typical content-type | Notes |
+|--------------|----------------------|-------|
+| `.text` | `text/plain`, `text/markdown` | UTF-8 fragments |
+| `.binary` | `application/octet-stream` | Base64-encoded in `data` (v0.1 always inlines) |
+| `.event` | `application/json` | Structured events |
+| `.log` | `text/plain` | Log lines from the handler |
+| `.thought` | `text/markdown` | Reasoning trace |
+| `.metric` | `application/json` | Periodic metric samples |
 
 ## StreamHandle
 
@@ -47,40 +49,51 @@ public protocol StreamHandle: Sendable {
 }
 ```
 
-Call `sendText` for convenience when the content is UTF-8 text.
-Call `sendChunk` to supply the full `StreamChunkPayload` — useful for
-binary data (base64 encoded), custom content-types, or explicit sequence
-numbers.
+Call `sendText` for convenience when the content is UTF-8 text. Call
+`sendChunk` to supply the full `StreamChunkPayload` — useful for binary
+data (base64-encoded in `data`), custom `content_type`, explicit
+`sequence`, or attaching `attributes`.
 
 ## Backpressure
 
-When the client is slow, the runtime applies backpressure: it stops
-reading from the `receive` stream until the client sends `stream.ack`.
-Handlers detect this via `backpressure` on the send call (it blocks
-until the pressure lifts).
+When the client is slow, the runtime applies backpressure: `sendText`
+and `sendChunk` suspend until the consumer drains and the in-process
+buffer drops below the high-water mark. The `BACKPRESSURE_OVERFLOW`
+error (`ARCPError.backpressureOverflow`) is emitted only when the
+runtime is forced to drop frames.
 
-See the [`AckBackpressure` sample](../../Samples/AckBackpressure) for
-a high-frequency streaming agent and a deliberately slow client.
+See the [`AckBackpressure` sample](../../Samples/AckBackpressure) for a
+high-frequency streaming agent paired with a deliberately slow consumer.
 
 ## Receiving a stream (client)
 
-Streams arrive as `stream.open` / `stream.chunk` / `stream.closed`
-envelopes in the subscription stream:
+Streams arrive as `stream.open` / `stream.chunk` / `stream.close`
+envelopes. Either drain `client.unhandled` directly, or open a
+subscription with `streamIds:` set in the filter:
 
 ```swift
-let subscription = try await client.subscribe(filter: .all, since: nil)
-var currentBuffer = ""
+try await client.send(
+    Envelope(
+        sessionId: client.info.sessionId,
+        payload: .subscribe(
+            SubscribePayload(filter: SubscriptionFilter())
+        )
+    )
+)
 
-for await event in subscription.events {
-    switch event.payload {
+var buffer = ""
+for await envelope in client.unhandled {
+    switch envelope.payload {
     case .streamOpen(let o):
-        print("stream \(o.streamId) opened kind=\(o.kind)")
+        print("stream \(envelope.streamId?.rawValue ?? "?") opened kind=\(o.kind)")
     case .streamChunk(let c):
-        if let text = c.data { currentBuffer += text }
-    case .streamClosed(let c):
+        if let text = c.content { buffer += text }
+    case .streamClose(let c):
         print("stream closed:", c.reason ?? "normal")
-        break
-    default: break
+    case .streamError(let e):
+        print("stream error:", e.error.code.rawValue, e.error.message)
+    default:
+        continue
     }
 }
 ```
@@ -88,7 +101,8 @@ for await event in subscription.events {
 ## Thought streams
 
 Thought streams (`kind: .thought`) carry the reasoning trace of the
-agent. Subscribe with a `.thought` kind filter to observe reasoning
-without receiving other stream traffic.
+agent. Subscribers can filter on `types: ["stream.open", "stream.chunk", "stream.close"]`
+and ignore other traffic, or look at `StreamOpenPayload.kind` to keep
+only the thought streams.
 
 See the [`Reasoning-Streams` sample](../../Samples/Reasoning-Streams).

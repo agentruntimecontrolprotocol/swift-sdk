@@ -10,7 +10,7 @@ Emit structured log lines from a handler:
 ```swift
 try await context.log(level: .info, message: "Processing item 1 of 42", attributes: nil)
 try await context.log(
-    level: .warning,
+    level: .warn,
     message: "upstream rate limit",
     attributes: [
         "retry_after": .int(5),
@@ -19,7 +19,7 @@ try await context.log(
 )
 ```
 
-Log levels: `.debug`, `.info`, `.warning`, `.error`.
+Log levels: `.trace`, `.debug`, `.info`, `.warn`, `.error`, `.critical`.
 
 Each `log` call emits a `log` envelope stored in the `EventLog` and
 routed to any matching subscribers.
@@ -44,38 +44,48 @@ try await context.metric(
 ```
 
 The `cost.budget.remaining` metric is emitted automatically after each
-`context.charge(…)` call (see [Leases](leases.md)).
+`context.charge(...)` call (see [Leases](leases.md)).
 
 ## Distributed tracing
 
-ARCP envelopes carry an optional `traceId` (W3C trace ID format). The
-runtime propagates it to all child jobs via `TraceContext`.
+ARCP envelopes carry `traceId`, `spanId`, and `parentSpanId` fields.
+The runtime preserves whatever the inbound envelope carries; to set a
+trace context for outbound work, scope the call with
+`Tracing.withTrace { ... }`:
 
 ```swift
 import ARCP
 
-// Pass a W3C traceparent from an HTTP request
-let traceCtx = TraceContext(traceParent: request.headers["traceparent"])
-
-let (outcome, _) = try await client.invoke(
-    tool: "summarise",
-    arguments: args,
-    traceId: traceCtx.traceId
-)
+let trace = TraceContext.newTrace()
+let invocation = try await Tracing.withTrace(trace) {
+    try await client.invoke(
+        tool: "summarise",
+        arguments: args
+    )
+}
 ```
 
-To export spans to a collector, subscribe to `metric` envelopes and
-look for the `trace.span` type, or use the
-[`Tracing` sample](../../Samples/Tracing) as a starting point.
+`Tracing.current` is task-local, so all envelopes built inside the
+closure inherit the trace automatically. Child spans:
+
+```swift
+let child = trace.childSpan()
+try await Tracing.withTrace(child) { ... }
+```
+
+The W3C `traceparent` representation can be reconstructed from
+`TraceContext.traceId` and `TraceContext.spanId` at the integration
+boundary.
 
 ## Event log
 
 All envelopes — handshake, job lifecycle, streams, logs, metrics — are
-stored in an SQLite `EventLog`. Query it for post-mortem analysis:
+stored in an SQLite `EventLog`. Replay envelopes for a session, optionally
+from a specific message id:
 
 ```swift
-let envelopes = try await runtime.eventLog.query(sessionId: sessId)
-for env in envelopes { print(env.type, env.id) }
+let envelopes = try await runtime.eventLog.replay(sessionId: sessionId, after: nil)
+for env in envelopes { print(env.payload.typeName, env.id) }
 ```
 
 Or replay a session from the CLI:
@@ -95,5 +105,8 @@ your log aggregator:
 import Logging
 
 LoggingSystem.bootstrap(MyLogHandler.init)
-// … then create ARCPRuntime …
+// ... then create ARCPRuntime ...
 ```
+
+See the [`Tracing` sample](../../Samples/Tracing) for an end-to-end
+example.

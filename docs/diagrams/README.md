@@ -1,7 +1,12 @@
 # Diagrams
 
-Paired light/dark Graphviz diagrams for the ARCP Swift SDK. Edit the
-`.dot` sources; render with `dot -Tsvg`.
+Graphviz diagrams for the ARCP Swift SDK. Edit the `.dot` sources;
+render with `dot -Tsvg`.
+
+| Source | Renders | Description |
+|--------|---------|-------------|
+| `architecture-light.dot` / `architecture-dark.dot` | `architecture-{light,dark}.svg` | Layer diagram — `ARCPClient` ↔ `Transport` ↔ `ARCPRuntime` subsystems |
+| `job-fsm.dot` | `job-fsm.svg` | `JobState` lifecycle and wire-event transitions |
 
 ## Architecture
 

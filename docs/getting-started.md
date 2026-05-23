@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- Swift 6.0 toolchain or later (validated against 6.3.1)
+- Swift 6.1 toolchain or later
 - macOS 14+ or Linux (Ubuntu 22.04+)
 
 ## Add to your Swift package
@@ -41,14 +41,14 @@ struct EchoHandler: ToolHandler {
 
 // 2. Build the runtime
 let runtime = try ARCPRuntime(
-    identity: IdentityBlock(name: "demo-agent", version: "1.0"),
+    identity: IdentityBlock(kind: "demo-agent", version: "1.0"),
     supportedCapabilities: Capabilities(),
-    auth: AnonymousAuthValidator()
+    auth: BearerAuthValidator(subjectsByToken: ["demo-token": "demo"])
 )
-runtime.register(EchoHandler())
+await runtime.register(EchoHandler())
 
 // 3. Pair a MemoryTransport
-let (serverTransport, clientTransport) = MemoryTransport.pipe()
+let (clientTransport, serverTransport) = MemoryTransport.makePair()
 
 // 4. Accept a session on the server side (non-blocking)
 Task { try await runtime.acceptSession(over: serverTransport) }
@@ -56,37 +56,48 @@ Task { try await runtime.acceptSession(over: serverTransport) }
 // 5. Connect the client
 let client = try await ARCPClient.open(
     transport: clientTransport,
-    auth: AuthBlock(scheme: .none),
-    client: IdentityBlock(name: "my-client", version: "1.0")
+    auth: AuthBlock(scheme: .bearer, token: "demo-token"),
+    client: IdentityBlock(kind: "my-client", version: "1.0")
 )
 
 // 6. Invoke a tool
-let (outcome, _) = try await client.invoke(tool: "echo", arguments: .object(["msg": .string("hello")]))
-if case .completed(let result) = outcome {
-    print(result.result ?? "no result")   // {"msg":"hello"}
+let invocation = try await client.invoke(
+    tool: "echo",
+    arguments: .object(["msg": .string("hello")])
+)
+if case .completed(let payload) = invocation.outcome {
+    print(payload.result ?? .null)   // {"msg":"hello"}
 }
 
 // 7. Close
-try await client.close()
+await client.close()
 ```
 
 ## WebSocket session
 
 ```swift
 import ARCP
+import NIOPosix
 
-let transport = WebSocketTransport(url: URL(string: "ws://localhost:8080/arcp")!)
-try await transport.connect()
+let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+let transport = try await WebSocketClient.connect(
+    url: "ws://localhost:8080/arcp",
+    eventLoopGroup: group
+)
 
 let client = try await ARCPClient.open(
     transport: transport,
     auth: AuthBlock(scheme: .bearer, token: "my-token"),
-    client: IdentityBlock(name: "my-client", version: "1.0"),
+    client: IdentityBlock(kind: "my-client", version: "1.0"),
     capabilities: Capabilities()
 )
 
-let (outcome, _) = try await client.invoke(tool: "summarise", arguments: .object(["text": .string(input)]))
-try await client.close()
+let invocation = try await client.invoke(
+    tool: "summarise",
+    arguments: .object(["text": .string(input)])
+)
+await client.close()
+try await group.shutdownGracefully()
 ```
 
 ## Stdio session
@@ -102,11 +113,11 @@ From your own process, drive it with `StdioTransport`:
 ```swift
 import ARCP
 
-let transport = try StdioTransport()
+let transport = StdioTransport()
 let client = try await ARCPClient.open(
     transport: transport,
-    auth: AuthBlock(scheme: .none),
-    client: IdentityBlock(name: "orchestrator", version: "1.0")
+    auth: AuthBlock(scheme: .bearer, token: "demo-token"),
+    client: IdentityBlock(kind: "orchestrator", version: "1.0")
 )
 ```
 
@@ -115,7 +126,7 @@ for full details.
 
 ## Samples
 
-The `Samples/` directory contains 21 self-contained examples — each is its
+The `Samples/` directory contains 27 self-contained examples — each is its
 own `Package.swift` with a single executable target:
 
 ```bash

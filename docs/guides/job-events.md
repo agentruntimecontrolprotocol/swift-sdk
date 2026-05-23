@@ -9,17 +9,19 @@ routed to any matching subscriptions.
 Report deterministic progress with a percent value:
 
 ```swift
-try await context.reportProgress(percent: 42.0, message: "Indexing…", attributes: nil)
+try await context.reportProgress(percent: 42.0, message: "Indexing...", attributes: nil)
 ```
 
-Report structured progress (ARCP v1.1 §8.2.1) with `current`/`total`/`units`:
+Report structured progress (ARCP v1.1 §8.2.1) with
+`current`/`total`/`units`:
 
 ```swift
-try await context.reportProgress(current: 42, total: 100, units: "files", message: "Indexing…")
+try await context.reportProgress(current: 42, total: 100, units: "files", message: "Indexing...")
 ```
 
-Both forms are available. Structured progress is preferred because it
-lets clients render accurate gauges.
+Both forms are available. The structured form derives a percent
+automatically (when `total > 0`) and lets clients render accurate
+gauges.
 
 ## Result chunks
 
@@ -30,8 +32,9 @@ For large results, stream them as `job.result_chunk` fragments
 func execute(invocation: ToolInvocation, context: any JobContext) async throws -> ToolOutput {
     let resultId = Ulid.next()
     var seq: UInt64 = 0
-    for chunk in bigOutput.chunks(ofCount: 4096) {
-        let isLast = chunk == bigOutput.last
+    let pieces = bigOutput.chunked(intoSize: 4096)
+    for (index, chunk) in pieces.enumerated() {
+        let isLast = index == pieces.count - 1
         try await context.emitResultChunk(
             resultId: resultId,
             chunkSeq: seq,
@@ -41,18 +44,23 @@ func execute(invocation: ToolInvocation, context: any JobContext) async throws -
         )
         seq += 1
     }
-    return .streamed(resultId: resultId, size: UInt64(bigOutput.count), summary: "big result")
+    return .streamed(
+        resultId: resultId,
+        size: UInt64(bigOutput.utf8.count),
+        summary: "big result"
+    )
 }
 ```
 
-The terminal `job.completed` carries `resultId` / `resultSize` /
-`summary` markers. The client collects chunks via `ResultChunkStream`.
+The terminal `job.completed` carries the same `resultId` along with
+`resultSize` / `summary`. The client collects chunks via
+`client.resultChunks(for: jobId)`, which returns a `ResultChunkStream`.
 
 See the [`ResultChunk` sample](../../Samples/ResultChunk).
 
 ## Streams
 
-Open a real-time event stream for incremental output:
+Open a real-time stream for incremental output:
 
 ```swift
 let handle = try await context.openStream(kind: .text, contentType: "text/plain", encoding: nil)
@@ -63,8 +71,8 @@ try await handle.close(reason: nil)
 return .empty  // result delivered via stream
 ```
 
-Stream kinds: `.text`, `.event`, `.log`, `.thought`, `.metric`,
-`.base64Binary`.
+Stream kinds (`StreamKind`): `.text`, `.binary`, `.event`, `.log`,
+`.thought`, `.metric`.
 
 See the [`Reasoning-Streams` sample](../../Samples/Reasoning-Streams)
 for a `thought`-stream example.
@@ -74,13 +82,14 @@ for a `thought`-stream example.
 ```swift
 try await context.log(level: .info, message: "Processing file 1 of 42", attributes: nil)
 try await context.log(
-    level: .warning,
+    level: .warn,
     message: "rate limit hit",
     attributes: ["retry_after": .int(5)]
 )
 ```
 
-Log levels: `.debug`, `.info`, `.warning`, `.error`.
+`LogLevel` cases follow the wire taxonomy (RFC §17.2): `.trace`,
+`.debug`, `.info`, `.warn`, `.error`, `.critical`.
 
 ## Metric events
 
@@ -108,19 +117,23 @@ See [Leases](leases.md) for budget setup and the
 
 ## Receiving events (client)
 
-Subscribe to all events in a session:
+Open a subscription by sending a `subscribe` envelope and reading the
+`subscribe.event` payloads from `unhandled`:
 
 ```swift
-let subscription = try await client.subscribe(filter: .all, since: nil)
-for await event in subscription.events {
-    switch event.payload {
-    case .jobProgress(let p):  print("progress:", p.percent ?? -1)
-    case .streamChunk(let c):  print("chunk:", c.data)
-    case .log(let l):          print("log:", l.message)
-    case .metric(let m):       print("metric:", m.name, m.value)
-    default: break
-    }
+try await client.send(
+    Envelope(
+        sessionId: client.info.sessionId,
+        payload: .subscribe(
+            SubscribePayload(filter: SubscriptionFilter())
+        )
+    )
+)
+
+for await envelope in client.unhandled {
+    guard case .subscribeEvent(let payload) = envelope.payload else { continue }
+    print("event:", payload.event)
 }
 ```
 
-See [Subscriptions](subscriptions.md) for filter syntax.
+See [Subscriptions](subscriptions.md) for filter fields.

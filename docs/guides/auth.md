@@ -1,17 +1,20 @@
 # Authentication
 
-ARCP supports three auth schemes (RFC §8.2): `bearer`, `signed_jwt`, and
-`none`. The scheme is declared by the client in `session.open`; the
-runtime validates it before sending `session.accepted`.
+ARCP defines five auth schemes on the wire (RFC §8.2): `bearer`,
+`signed_jwt`, `mtls`, `oauth2`, and `none`. This SDK implements
+`bearer`, `signed_jwt`, and `none`; `mtls` and `oauth2` are deferred
+to v0.2 (see [Conformance](../conformance.md)). The scheme is declared
+by the client in `session.open`; the runtime validates it before
+sending `session.accepted`.
 
 ## Bearer tokens
 
-The simplest scheme. Configure `BearerAuthValidator` with a token → subject
-map:
+The simplest scheme. Configure `BearerAuthValidator` with a token →
+subject map:
 
 ```swift
 let runtime = try ARCPRuntime(
-    identity: IdentityBlock(name: "my-agent", version: "1.0"),
+    identity: IdentityBlock(kind: "my-agent", version: "1.0"),
     supportedCapabilities: Capabilities(),
     auth: BearerAuthValidator(subjectsByToken: [
         "prod-token-abc": "orchestrator",
@@ -26,17 +29,17 @@ The client sends the token in `session.open`:
 let client = try await ARCPClient.open(
     transport: transport,
     auth: AuthBlock(scheme: .bearer, token: "prod-token-abc"),
-    client: IdentityBlock(name: "orchestrator", version: "1.0")
+    client: IdentityBlock(kind: "orchestrator", version: "1.0")
 )
 ```
 
-For custom trust levels supply the full `[String: AuthenticatedPrincipal]`
-form:
+To set a custom trust level (defaults to `.trusted`) supply the full
+`[String: AuthenticatedPrincipal]` form:
 
 ```swift
 BearerAuthValidator([
-    "admin-token": AuthenticatedPrincipal(subject: "admin", trustLevel: .elevated),
-    "read-token":  AuthenticatedPrincipal(subject: "reader", trustLevel: .trusted),
+    "admin-token": AuthenticatedPrincipal(subject: "admin", trustLevel: .privileged),
+    "read-token":  AuthenticatedPrincipal(subject: "reader", trustLevel: .constrained),
 ])
 ```
 
@@ -54,7 +57,7 @@ let keys = JWTKeyCollection()
 await keys.add(hmac: "my-shared-secret", digestAlgorithm: .sha256)
 
 let runtime = try ARCPRuntime(
-    identity: IdentityBlock(name: "my-agent", version: "1.0"),
+    identity: IdentityBlock(kind: "my-agent", version: "1.0"),
     supportedCapabilities: Capabilities(),
     auth: JWTAuthValidator(keys: keys, audience: "my-agent")
 )
@@ -66,7 +69,7 @@ The client passes the JWT string as the token:
 let client = try await ARCPClient.open(
     transport: transport,
     auth: AuthBlock(scheme: .signedJwt, token: jwt),
-    client: IdentityBlock(name: "caller", version: "1.0")
+    client: IdentityBlock(kind: "caller", version: "1.0")
 )
 ```
 
@@ -75,13 +78,15 @@ let client = try await ARCPClient.open(
 | Claim | Type | Notes |
 |-------|------|-------|
 | `sub` | String | Becomes `AuthenticatedPrincipal.subject` |
-| `aud` | String or `[String]` | Must match the runtime identity name |
+| `aud` | String or `[String]` | Must include the runtime audience passed to `JWTAuthValidator(audience:)` |
 | `exp` | NumericDate | Validated by `JWTAuthValidator` |
+| `iat`, `iss` | optional | Decoded but not enforced by the validator |
 
 ### Challenge–response nonce
 
-When `challengeRequired: true`, the runtime sends `session.challenge`
-before accepting auth. The nonce is passed to `AuthValidator.validate`:
+When `challengeRequired: true` is passed to `ARCPRuntime.init`, the
+runtime sends `session.challenge` before validating auth. The nonce is
+passed to `AuthValidator.validate(auth:challenge:)`:
 
 ```swift
 public protocol AuthValidator: Sendable {
@@ -94,23 +99,27 @@ Sign the nonce into the JWT or include it as a claim to prevent replay.
 
 ## No auth (`none`)
 
-For local tests or trusted environments:
+The `none` scheme bypasses the validator entirely, but the runtime only
+accepts it when both peers advertise the `anonymous` capability. No
+special validator type is required — any `AuthValidator` will do.
 
 ```swift
 let runtime = try ARCPRuntime(
-    identity: IdentityBlock(name: "dev-agent", version: "0.0"),
-    supportedCapabilities: Capabilities(),
-    auth: AnonymousAuthValidator()
+    identity: IdentityBlock(kind: "dev-agent", version: "0.0"),
+    supportedCapabilities: Capabilities(anonymous: true),
+    auth: BearerAuthValidator(subjectsByToken: [:])  // never consulted
 )
 
 let client = try await ARCPClient.open(
     transport: transport,
     auth: AuthBlock(scheme: .none),
-    client: IdentityBlock(name: "test-client", version: "0.0")
+    client: IdentityBlock(kind: "test-client", version: "0.0"),
+    capabilities: Capabilities(anonymous: true)
 )
 ```
 
-Never use `AnonymousAuthValidator` in production.
+The resulting principal has `subject == "anonymous"` and
+`trustLevel == .untrusted`. Don't use anonymous sessions in production.
 
 ## Custom validator
 
@@ -139,14 +148,26 @@ struct HMACValidator: AuthValidator {
 See the [`CustomAuth` sample](../../Samples/CustomAuth) for a complete
 HMAC-SHA256 example.
 
+To accept several schemes in one runtime, wrap them in
+`CompositeAuthValidator`:
+
+```swift
+let auth = CompositeAuthValidator([
+    BearerAuthValidator(subjectsByToken: tokens),
+    JWTAuthValidator(keys: keys, audience: "my-agent"),
+])
+```
+
 ## Trust levels
 
-`AuthenticatedPrincipal.trustLevel` is one of:
+`AuthenticatedPrincipal.trustLevel` is one of (RFC §15.3):
 
-| Level | Use |
-|-------|-----|
-| `.trusted` | Standard authenticated caller |
-| `.elevated` | May request elevated permission grants |
+| Level | Meaning |
+|-------|---------|
+| `.untrusted` | Anonymous or unverified caller |
+| `.constrained` | Authenticated but limited (e.g. read-only API tokens) |
+| `.trusted` | Standard authenticated caller (default for the bundled validators) |
+| `.privileged` | May elevate authority or grant new leases |
 
-The trust level is available on `JobContext` as
-`context.principal?.trustLevel` and can gate access to sensitive tools.
+The trust level rides on `SessionInfo.principal.trustLevel` and is
+exposed inside a handler via the session's `JobContext` callbacks.

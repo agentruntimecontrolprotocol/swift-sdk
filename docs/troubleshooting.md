@@ -11,9 +11,9 @@ variable interpolation issues.
 ### `unauthenticated: JWT validation failed`
 
 Common causes:
-- `aud` claim does not match the runtime identity name passed to `JWTAuthValidator`.
+- `aud` claim does not include the audience string passed to `JWTAuthValidator(audience:)`.
 - JWT is expired (`exp` in the past).
-- Wrong signing key — check that the same key collection is used to
+- Wrong signing key — check that the same `JWTKeyCollection` is used to
   issue and validate tokens.
 
 ### `failedPrecondition: provisioned_credentials advertised without credential provisioner`
@@ -26,10 +26,13 @@ capability flag.
 
 ### `HEARTBEAT_LOST`
 
-The handler stopped sending heartbeats within the configured window.
-Make sure long-running handlers call `context.heartbeat()` (or
-equivalent) on each loop iteration. If the handler is CPU-bound,
-insert a `Task.yield()` periodically.
+The runtime emits `job.heartbeat` envelopes from a background task; if
+that task can't run (because the handler is CPU-bound and never yields
+back to the runtime actor) the next deadline passes and the job
+transitions to `failed` with `HEARTBEAT_LOST`. Insert a `Task.yield()`
+inside tight loops, or break the work into `await`-boundaried chunks.
+The default heartbeat interval is `Capabilities.heartbeatIntervalSeconds`
+(30 seconds).
 
 ### `LEASE_EXPIRED`
 
@@ -46,14 +49,16 @@ or request a higher budget from the orchestrator.
 ### `BACKPRESSURE_OVERFLOW`
 
 The stream buffer is full — the subscriber is not keeping up with
-the producer. Either slow down the producer (`try await handle.sendText(…)`
+the producer. Either slow down the producer (`try await handle.sendText(...)`
 will block on backpressure) or increase the stream buffer size.
 
-### `PERMISSION_DENIED` on `tool.invoke`
+### `PERMISSION_DENIED`
 
-The client does not hold a valid lease for the requested resource /
-operation pair. Check that `permission.grant` was issued before the
-job was submitted.
+The job tried an operation outside its active leases. Either pre-grant
+authority via `tool.invoke`'s `leaseConstraints` / `costBudget` /
+`modelUse`, or let the handler request it inline with
+`context.requestPermission(...)` and have the client's
+`PermissionHandler` return `.granted(seconds:)`.
 
 ## Build errors
 
@@ -68,19 +73,14 @@ v0.2.
 
 Swift 6 strict concurrency requires all values crossing actor boundaries
 to be `Sendable`. Mark your custom payload types with `Sendable` or use
-`@unchecked Sendable` as a temporary escape hatch.
+`@unchecked Sendable` as a temporary escape hatch. The package builds
+in Swift 6 language mode with `ExistentialAny` enabled.
 
 ### `warning: non-sendable type 'Y' in implicitly asynchronous access`
 
 Same root cause. Audit conformances or isolate access to a single actor.
 
 ## Tests
-
-### Tests fail with `address already in use`
-
-Two test suites are binding the same port concurrently. Ensure that
-each test uses `MemoryTransport` (no ports) or that WebSocket tests
-each use a unique port number.
 
 ### `swift test` takes much longer than expected
 

@@ -18,7 +18,6 @@
 - [Observability](guides/observability.md)
 - [Subscriptions](guides/subscriptions.md)
 - [Resume](guides/resume.md)
-- [Delegation & handoff](guides/delegation.md)
 - [Errors](guides/errors.md)
 - [Vendor extensions](guides/vendor-extensions.md)
 

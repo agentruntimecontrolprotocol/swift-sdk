@@ -70,5 +70,5 @@ See [`Recipes/stream-resume/README.md`](../Recipes/stream-resume/README.md).
 
 ---
 
-For the full sample library (21+ examples covering individual primitives),
+For the full sample library (27 examples covering individual primitives),
 see [`Samples/README.md`](../Samples/README.md).

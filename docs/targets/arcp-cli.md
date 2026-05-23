@@ -14,8 +14,8 @@ swift run arcp <subcommand> [options]
 |------------|-------------|
 | `serve` | Accept one ARCP session over stdio (NDJSON) |
 | `send <tool>` | Submit a single tool invocation and print the result |
-| `tail` | Subscribe to all events and print them as NDJSON |
-| `replay <db> <session>` | Replay a stored session from an SQLite event log |
+| `tail` | Subscribe over stdio and print every `subscribe.event` payload |
+| `replay <db> <session>` | Replay envelopes for a session from a SQLite event log |
 
 See [CLI](../cli.md) for full option documentation.
 
@@ -29,13 +29,13 @@ See [CLI](../cli.md) for full option documentation.
 | Package | Reason |
 |---------|--------|
 | `ARCP` | Core library |
-| `swift-argument-parser` | `@main`, `ParsableCommand`, flags |
-| `swift-log` | Log level flag routing |
+| `swift-argument-parser` | `@main`, `AsyncParsableCommand`, flags |
+| `swift-log` | Logger labels for CLI output |
 
 ## Building for release
 
 ```bash
-swift build -c release -Xswiftc -warnings-as-errors
+swift build -c release
 ```
 
 The release binary is at `.build/release/arcp`.
@@ -47,8 +47,8 @@ swift build -c release
 cp .build/release/arcp /usr/local/bin/arcp
 ```
 
-Or via [Mint](https://github.com/yonaskolb/Mint):
+Or with [Mint](https://github.com/yonaskolb/Mint):
 
 ```bash
-mint install agentruntimecontrolprotocol/swift-sdk@1.1.0 --executable arcp
+mint install agentruntimecontrolprotocol/swift-sdk --executable arcp
 ```

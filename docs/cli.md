@@ -12,80 +12,81 @@ Or, after `swift build -c release`, run the binary at
 
 ## `arcp serve`
 
-Accept one ARCP session over `stdin` / `stdout` (NDJSON).
+Accept a single ARCP session over `stdin` / `stdout` (NDJSON). Runs an
+empty `ARCPRuntime` that advertises `streaming`, `durableJobs`,
+`artifacts`, and `subscriptions` and accepts one bearer token; register
+your own tool handlers by editing
+`Sources/arcp-cli/ArcpCLI.swift`.
 
 ```bash
 swift run arcp serve
-swift run arcp serve --identity my-agent/1.0
-swift run arcp serve --bearer-token secret123
+swift run arcp serve --token secret123 --subject orchestrator
 ```
 
 Options:
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--identity` | `arcp-cli/1.0` | `name/version` reported in `session.open` |
-| `--bearer-token <token>` | — | Accept sessions authenticated with this bearer token |
-| `--no-auth` | false | Accept `auth.scheme: none` (insecure; testing only) |
-| `--log-level` | `info` | Log level (`debug`, `info`, `warning`, `error`) |
+| `--token <token>` | `demo-token` | Bearer token the runtime will accept |
+| `--subject <subject>` | `demo-user` | Subject string mapped to the bearer token |
 
-`arcp serve` blocks until `session.close` or `stdin` closes, then exits 0.
+`arcp serve` writes `arcp serve: ready (wire <version>)` to stderr once
+the runtime is up, then blocks until `session.close` or `stdin` closes.
 
 ## `arcp send`
 
-Submit a single tool invocation to a running `arcp serve` process over stdio.
+Open a session over stdio, submit one `tool.invoke`, and print the
+terminal result.
 
 ```bash
 swift run arcp send summarise --args '{"text":"hello world"}'
-swift run arcp send echo --args '{"msg":"ping"}' --timeout 30
+swift run arcp send echo --args '{"msg":"ping"}' --token secret123
 ```
 
 Options:
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--args <json>` | `{}` | JSON object of tool arguments |
-| `--timeout <seconds>` | 60 | Seconds to wait for `job.completed` |
-| `--bearer-token <token>` | — | Bearer token for auth |
+| `--args <json>` | `{}` | JSON value passed as the tool arguments |
+| `--token <token>` | `demo-token` | Bearer token for `session.open` |
 
-Exits 0 on `job.completed`, 1 on `job.failed` or timeout.
+On `job.completed` the payload is printed as JSON to stdout. On
+`job.failed` or `job.cancelled` the error code and message are written
+to stderr and the process exits non-zero.
 
 ## `arcp tail`
 
-Subscribe to all events in an active session and print them as NDJSON.
+Subscribe over stdio and print every `subscribe.event` payload as one
+JSON object per line.
 
 ```bash
 swift run arcp tail
-swift run arcp tail --filter job_id=01J...
-swift run arcp tail --since 2024-01-01T00:00:00Z
+swift run arcp tail --types log,job.progress,job.completed
 ```
 
 Options:
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--filter <key>=<val>` | — | Property filter (repeatable) |
-| `--since <ISO8601>` | — | Backfill from this timestamp |
-| `--session-id <id>` | — | Restrict to one session |
+| `--token <token>` | `demo-token` | Bearer token for `session.open` |
+| `--types <csv>` | `log,job.progress,job.completed,job.failed,job.cancelled` | Comma-separated message types passed to `SubscriptionFilter.types` |
+
+The command runs until the transport closes.
 
 ## `arcp replay`
 
-Replay a stored session from an SQLite event log.
+Replay envelopes for a session from a SQLite event log file.
 
 ```bash
 swift run arcp replay events.sqlite sess_01JXXX
+swift run arcp replay events.sqlite sess_01JXXX --after msg_01JYY
 ```
 
-Reads every envelope stored for `sess_01JXXX` from `events.sqlite` and
-prints each as NDJSON in chronological order. Useful for post-mortem
-debugging without re-running the agent.
+Options:
 
-## Exit codes
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--after <message-id>` | — | Skip envelopes at or before this `MessageId` |
 
-| Code | Meaning |
-|------|---------|
-| 0 | Success |
-| 1 | Tool invocation failed (`job.failed`) or bad args |
-| 2 | Transport / auth error |
-| 64 | Usage error (`EX_USAGE`) |
-| 70 | Internal error (`EX_SOFTWARE`) |
+Every matching envelope is printed as JSON in chronological order.
+Useful for post-mortem debugging without re-running the agent.

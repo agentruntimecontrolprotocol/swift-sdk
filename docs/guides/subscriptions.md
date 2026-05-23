@@ -1,53 +1,95 @@
 # Subscriptions
 
-A subscription is a live event feed. The client declares a filter;
-the runtime pushes every matching envelope to the subscriber as a
-`subscribe.event` message (RFC §13).
+A subscription is a live event feed. The client declares a filter; the
+runtime wraps every matching envelope in a `subscribe.event` payload
+and pushes it down the session (RFC §13).
 
 ## Subscribing (client)
 
+Send a `subscribe` envelope and read `subscribe.event` envelopes from
+`client.unhandled`:
+
 ```swift
-// All events
-let sub = try await client.subscribe(filter: .all, since: nil)
-
-// Only job events for a specific job
-let sub = try await client.subscribe(
-    filter: .jobId(myJobId),
-    since: nil
+// All envelopes in the session
+try await client.send(
+    Envelope(
+        sessionId: client.info.sessionId,
+        payload: .subscribe(
+            SubscribePayload(filter: SubscriptionFilter())
+        )
+    )
 )
-
-// Backfill from 10 minutes ago, then live
-let since = SubscriptionSince.timestamp(Date().addingTimeInterval(-600))
-let sub = try await client.subscribe(filter: .all, since: since)
 ```
 
-The subscription delivers a `boundary` event
-(`subscription.backfill_complete`) after historical events are flushed
-and before live events begin:
+Filter on specific jobs:
 
 ```swift
-for await event in sub.events {
-    if case .subscriptionBackfillComplete = event.payload {
+let filter = SubscriptionFilter(jobIds: [myJobId])
+try await client.send(
+    Envelope(
+        sessionId: client.info.sessionId,
+        payload: .subscribe(SubscribePayload(filter: filter))
+    )
+)
+```
+
+Backfill from a known message id, then receive live events:
+
+```swift
+let since = SubscriptionSince(afterMessageId: lastSeenId)
+try await client.send(
+    Envelope(
+        sessionId: client.info.sessionId,
+        payload: .subscribe(
+            SubscribePayload(filter: SubscriptionFilter(), since: since)
+        )
+    )
+)
+```
+
+After backfill completes the runtime emits a synthetic
+`event.emit` with name `subscription.backfill_complete`:
+
+```swift
+for await envelope in client.unhandled {
+    if case .eventEmit(let payload) = envelope.payload,
+       payload.name == "subscription.backfill_complete" {
         print("now live")
         continue
     }
-    handle(event)
+    if case .subscribeEvent(let event) = envelope.payload {
+        handle(event.event)
+    }
 }
 ```
 
-## Filter types
+## SubscriptionFilter fields
 
-| Filter | Description |
-|--------|-------------|
-| `.all` | Every envelope in the session |
-| `.jobId(JobId)` | Events for one job |
-| `.messageType(String)` | Envelopes of a specific wire type |
-| `.sessionId(SessionId)` | Events from a specific session |
+| Field | Type | Description |
+|-------|------|-------------|
+| `sessionIds` | `[SessionId]?` | Restrict to specific session ids |
+| `traceIds` | `[TraceId]?` | Match envelopes carrying these trace ids |
+| `jobIds` | `[JobId]?` | One or more job ids |
+| `streamIds` | `[StreamId]?` | One or more stream ids |
+| `types` | `[String]?` | Wire-type names, e.g. `"log"`, `"job.progress"` |
+| `minPriority` | `Priority?` | Drop envelopes below this priority |
+
+All fields are AND-ed together; within a field the match is an OR. An
+empty `SubscriptionFilter()` matches every envelope the session
+emits.
 
 ## Cancelling a subscription
 
+The runtime returns `subscribe.accepted` carrying a `SubscriptionId`;
+keep it to cancel later:
+
 ```swift
-sub.cancel()   // sends subscribe.cancel, stops the AsyncStream
+try await client.send(
+    Envelope(
+        sessionId: client.info.sessionId,
+        payload: .unsubscribe(UnsubscribePayload(subscriptionId: id))
+    )
+)
 ```
 
 ## Server-side subscription routing
@@ -59,12 +101,12 @@ in `subscribe.event` and delivered to the subscriber's transport.
 
 Backfill runs in a child `Task`, scanning the `EventLog` for historical
 matches and emitting them before switching to live routing. A synthetic
-`subscription.backfill_complete` boundary marks the end of historical
+`subscription.backfill_complete` `event.emit` marks the end of historical
 data.
 
 ## Multiple subscribers
 
 A single session supports multiple concurrent subscriptions — each with
-its own filter and independent `AsyncStream`. The
-[`Subscriptions` sample](../../Samples/Subscriptions) demonstrates three
-observers on one session with three different filters.
+its own filter and an independent `SubscriptionId`. The
+[`Subscriptions` sample](../../Samples/Subscriptions) demonstrates
+three observers on one session with three different filters.

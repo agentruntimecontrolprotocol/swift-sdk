@@ -14,20 +14,27 @@
 Every ARCP message is an `Envelope`:
 
 ```swift
-public struct Envelope: Sendable, Codable {
-    public let id: MessageId         // ULID
-    public let sessionId: SessionId?
-    public let type: MessageType     // discriminated-union tag
-    public let payload: MessagePayload
-    public let priority: Priority?
-    public let traceId: TraceId?
-    // …
+public struct Envelope: Sendable, Hashable, Codable {
+    public var arcp: String          // wire version, e.g. "1.1"
+    public var id: MessageId         // ULID
+    public var timestamp: Date
+    public var sessionId: SessionId?
+    public var jobId: JobId?
+    public var streamId: StreamId?
+    public var subscriptionId: SubscriptionId?
+    public var traceId: TraceId?
+    public var correlationId: MessageId?
+    public var idempotencyKey: IdempotencyKey?
+    public var priority: Priority
+    public var payload: MessageType
+    // ...
 }
 ```
 
 `MessageType` has one case per in-scope wire type (e.g.,
 `.toolInvoke`, `.jobProgress`, `.streamChunk`). Unknown types decode as
-`.unknown(typeName:payload:)` and are rejected per RFC §21.3.
+`.unknown(typeName:payload:)` and are accepted, dropped, or `nack`-ed by
+`ExtensionRegistry.disposition(forUnknown:optional:)` per RFC §21.3.
 
 ### `ARCPRuntime`
 
@@ -35,17 +42,18 @@ public struct Envelope: Sendable, Codable {
 
 | Subsystem | Role |
 |-----------|------|
-| `EventLog` | SQLite-backed, queryable by session, job, or message type |
-| `SubscriptionManager` | Routes every outbound envelope to matching subscribers |
+| `EventLog` | SQLite-backed, replayable by `sessionId` and `MessageId` cutoff |
+| `SubscriptionManager` | Routes every outbound envelope to matching subscribers, including backfill |
 | `ArtifactStore` | Manages inline-base64 artifacts and retention sweeps |
-| `JobManager` (per session) | Runs tools as `Task`s, drives the job FSM, manages heartbeats |
+| `JobManager` (per session) | Runs tools as `Task`s, drives the job FSM, owns leases and budgets |
 | `CapabilityNegotiator` | Intersects runtime and client capability sets (RFC §7) |
-| `CredentialManager` | Issues / rotates / revokes lease-bound credentials |
+| `ExtensionRegistry` | Validates extension namespaces and disposes of unknown types (RFC §21) |
+| `CredentialManager` | Issues / rotates / revokes lease-bound credentials (when a provisioner is configured) |
 
 Register tool handlers once; all future sessions inherit them:
 
 ```swift
-runtime.register(MyToolHandler())
+await runtime.register(MyToolHandler())
 ```
 
 Drive a session by calling:
@@ -54,17 +62,19 @@ Drive a session by calling:
 let info = try await runtime.acceptSession(over: transport)
 ```
 
-`acceptSession` blocks until `session.close` or the transport closes.
+`acceptSession` completes the handshake, then blocks on the dispatch
+loop until `session.close` is received or the transport closes.
 
 ### `ARCPClient`
 
 `ARCPClient` is a Swift actor that:
 
-- Executes the four-step handshake (RFC §8.1) in `open(…)`
-- Exposes `invoke(tool:arguments:)` returning `(JobOutcome, JobId?)`
-- Exposes `invokeWithProgress(…)` returning a progress `AsyncStream`
+- Executes the four-step handshake (RFC §8.1) in `open(...)`
+- Exposes `invoke(tool:arguments:costBudget:modelUse:leaseConstraints:idempotencyKey:)` returning an `InvocationResult` with `jobId`, terminal `JobOutcome`, and a progress `AsyncStream<JobProgressPayload>`
+- Exposes `ping(nonce:timeout:)`, `cancelJob(_:reason:deadlineMs:)`, `close(reason:)`
+- Exposes `resultChunks(for:)` for joining a `ResultChunkStream` from a streamed result
 - Handles `permission.request` via a pluggable `PermissionHandler`
-- Exposes `subscribe(filter:since:)` for event subscriptions
+- Surfaces every envelope it does not consume internally on `unhandled` — clients drive subscriptions, resume, list-jobs, etc. by sending the corresponding payload via `send(_:)` and reading the responses from `unhandled`
 
 ### `Transport`
 
@@ -90,16 +100,16 @@ struct via `MessageType`'s `Codable` implementation.
 ```
 Sources/
 ├── ARCP/
-│   ├── Auth/          BearerAuthValidator, JWTAuthValidator
-│   ├── Client/        ARCPClient, ResultChunkStream
-│   ├── Envelope/      Envelope, MessageType, JSONValue
+│   ├── Auth/          BearerAuthValidator, JWTAuthValidator, CompositeAuthValidator
+│   ├── Client/        ARCPClient, ResultChunkStream, PermissionHandler
+│   ├── Envelope/      Envelope, MessageType, JSONValue, Priority
 │   ├── Errors/        ARCPError, ErrorCode
 │   ├── Extensions/    ExtensionRegistry
 │   ├── Ids/           ULID generation, typed ID aliases
 │   ├── Messages/      Payload structs, one file per RFC section
 │   ├── Runtime/       ARCPRuntime and all subsystems
 │   ├── Store/         EventLog (SQLite)
-│   ├── Trace/         TraceContext
+│   ├── Trace/         TraceContext, Tracing task-local
 │   └── Transport/     MemoryTransport, StdioTransport, WebSocketTransport
 └── arcp-cli/          `arcp` CLI entry point
 ```
@@ -109,5 +119,5 @@ Sources/
 The architecture layer diagram above is rendered from
 [`docs/diagrams/architecture-light.dot`](diagrams/architecture-light.dot)
 (light) and [`architecture-dark.dot`](diagrams/architecture-dark.dot) (dark).
-Additional SVG state diagrams for the session, job, stream, subscription, and
-lease life cycles are in [`docs/diagrams/`](diagrams/).
+The job lifecycle state diagram is in
+[`docs/diagrams/job-fsm.dot`](diagrams/job-fsm.dot).

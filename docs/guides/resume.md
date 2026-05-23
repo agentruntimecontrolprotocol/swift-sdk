@@ -1,40 +1,64 @@
 # Resume
 
-ARCP supports resuming a session from a specific message, recovering
+ARCP supports resuming a session from a specific message id, recovering
 after a network drop or process crash without replaying from the
 beginning (RFC §19).
 
 ## How it works
 
 Every envelope is stored in the `EventLog` with its `id` (a ULID).
-When a client reconnects, it passes `after_message_id` in
-`session.open`; the runtime replays all stored envelopes after that
-ID and then switches to live delivery.
+After a transport drop, open a fresh session and send a `resume`
+envelope carrying `after_message_id`; the runtime replays every
+envelope with id greater than that cutoff and then resumes live
+delivery. It terminates the replay with an `ack` whose `detail`
+reports the number of replayed events.
 
 ## Reconnecting with a resume point
 
 ```swift
-// On first connect, store the last message id you processed
-var lastSeen: MessageId? = nil
-
-let client1 = try await ARCPClient.open(transport: transport1, auth: auth, client: clientId)
-for await envelope in client1.unhandled {
-    lastSeen = envelope.id
-    // … process …
+// On first connect, remember the last message id we saw.
+var lastSeen: MessageId?
+let client = try await ARCPClient.open(
+    transport: transport,
+    auth: AuthBlock(scheme: .bearer, token: token),
+    client: IdentityBlock(kind: "resumable", version: "1.0"),
+    capabilities: Capabilities(durableJobs: true)
+)
+let drainer = Task {
+    for await envelope in client.unhandled {
+        lastSeen = envelope.id
+    }
 }
 
-// Network drops. Reconnect and resume from lastSeen
-let client2 = try await ARCPClient.open(
-    transport: transport2,
-    auth: auth,
-    client: clientId,
-    afterMessageId: lastSeen    // runtime replays from this point
+// ... transport drops ...
+
+// Reconnect over a fresh transport, then ask the runtime to replay.
+let resumed = try await ARCPClient.open(
+    transport: try await WebSocketClient.connect(url: url, eventLoopGroup: group),
+    auth: AuthBlock(scheme: .bearer, token: token),
+    client: IdentityBlock(kind: "resumable", version: "1.0"),
+    capabilities: Capabilities(durableJobs: true)
 )
+try await resumed.send(
+    Envelope(
+        sessionId: resumed.info.sessionId,
+        payload: .resume(
+            ResumePayload(afterMessageId: lastSeen, includeOpenStreams: true)
+        )
+    )
+)
+// The runtime replays every envelope with id > lastSeen, terminates
+// with an `ack`, then resumes live streaming.
+drainer.cancel()
 ```
 
-The runtime will emit a `session.resumed` envelope confirming the
-resume point, then replay all envelopes after `lastSeen` before
-switching to live traffic.
+`ResumePayload` carries:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `afterMessageId` | `MessageId?` | Replay every stored envelope with id strictly greater than this |
+| `checkpointId` | `String?` | Reserved for checkpoint-based resume (deferred to v0.2) |
+| `includeOpenStreams` | `Bool` | If true, re-emit `stream.open` for streams still alive |
 
 ## Checkpointing
 
@@ -42,29 +66,26 @@ Track the last processed `MessageId` durably to survive process crashes:
 
 ```swift
 actor Checkpoint {
-    private var last: MessageId?
     private let store: any DurableStore   // your persistent store
 
     func update(_ id: MessageId) async throws {
-        last = id
         try await store.set("last_message", value: id.rawValue)
     }
 
     func load() async throws -> MessageId? {
         guard let raw = try await store.get("last_message") else { return nil }
-        return MessageId(rawValue: raw)
+        return MessageId(raw)
     }
 }
 ```
 
 ## Artifact retention
 
-Inline-base64 artifacts are swept on a configurable retention schedule.
-After the retention window, the envelope is still present in the log
-but the artifact data is removed. Clients that need to resume should
-process artifact payloads before the window expires.
-
-See `ArtifactStore.defaultRetention` for the default TTL.
+Inline-base64 artifacts are swept on a configurable retention schedule
+(`Capabilities.artifactRetention`). After the retention window the
+envelope is still present in the log but the artifact data is removed.
+Clients that need to resume should process artifact payloads before
+the window expires.
 
 ## Samples
 
