@@ -110,7 +110,7 @@ struct WriterAgent: ToolHandler {
         // Open the ResultChunkStream before consuming chunks
         let chunkStream = await client.resultChunks(for: jobId)
 
-        print("→ phase 1: collecting first 4 chunks (simulating crash after chunk 4)…")
+        print("→ phase 1: collecting first 4 chunks (simulating crash after chunk 4)...")
         var lastSeq: UInt64 = 0
         var phase1Count     = 0
         for try await chunk in chunkStream {
@@ -123,7 +123,7 @@ struct WriterAgent: ToolHandler {
 
         // ── Phase 2: re-submit same key, resume from buffered remainder ──────
 
-        print("→ phase 2: re-submitting same idempotency key…")
+        print("→ phase 2: re-submitting same idempotency key...")
         try await client.send(Envelope(
             sessionId:      client.info.sessionId,
             idempotencyKey: idempotencyKey,
@@ -146,7 +146,7 @@ struct WriterAgent: ToolHandler {
         }
 
         // Resume consuming the same stream — buffered chunks 4–9 are still available
-        print("→ consuming remaining chunks from buffered stream…")
+        print("→ consuming remaining chunks from buffered stream...")
         var phase2Count = 0
         for try await chunk in chunkStream {
             phase2Count += 1

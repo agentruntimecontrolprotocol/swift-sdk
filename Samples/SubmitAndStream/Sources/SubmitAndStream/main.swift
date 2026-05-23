@@ -45,7 +45,7 @@ struct SummarizerAgent: ToolHandler {
         try await context.reportProgress(percent: 100, message: "done", attributes: nil)
         try await context.log(level: .info, message: "summary complete", attributes: nil)
 
-        let summary = "Summary: \(String(text.prefix(40)))…"
+        let summary = "Summary: \(String(text.prefix(40)))..."
         return .value(.string(summary))
     }
 }

@@ -1,7 +1,7 @@
 import Foundation
 
 /// Crockford-base32 [ULID](https://github.com/ulid/spec) generator used for every
-/// SDK-minted id (messages, sessions, jobs, streams, …).
+/// SDK-minted id (messages, sessions, jobs, streams, ...).
 ///
 /// ULIDs sort lexicographically by creation time, which makes them the natural
 /// row key for the SQLite event log (RFC §19) and for filter-aware backfill

@@ -1,6 +1,6 @@
 # ARCP Swift Samples
 
-The numbered samples under `01-…` through `06-…` are the original
+The numbered samples under `01-...` through `06-...` are the original
 walkthrough series. The fourteen named samples below are per-primitive
 illustrations — one for each ARCP capability defined in RFC-0001 v2,
 mirroring the canonical `python-sdk/examples/` set.

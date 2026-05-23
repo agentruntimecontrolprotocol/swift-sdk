@@ -34,7 +34,7 @@ swift run
 ## Expected output
 
 ```
-connecting over NDJSON pipe transport…
+connecting over NDJSON pipe transport...
 session open  session_id=xxxxxxxx
 → tool.invoke sent (one NDJSON line on the pipe)
 ← job.accepted  job_id=yyyyyyyy

@@ -33,7 +33,7 @@ public actor ARCPClient {
     }
 
     /// Async stream of envelopes the client did not consume internally.
-    /// Phase 3+ subsystems (job tracker, stream subscribers, …) will drain
+    /// Phase 3+ subsystems (job tracker, stream subscribers, ...) will drain
     /// this and route to typed callbacks.
     public nonisolated let unhandled: AsyncStream<Envelope>
 

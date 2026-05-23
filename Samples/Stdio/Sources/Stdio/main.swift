@@ -66,7 +66,7 @@ struct StdioExample {
         let server = Task { try await runtime.acceptSession(over: serverTransport) }
 
         // Connect the client over the same NDJSON pipe transport.
-        print("connecting over NDJSON pipe transport…")
+        print("connecting over NDJSON pipe transport...")
         let client = try await ARCPClient.open(
             transport: clientTransport,
             auth: AuthBlock(scheme: .bearer, token: "demo-token"),
