@@ -48,7 +48,7 @@ try await client.send(
 ```
 
 After backfill completes the runtime emits a synthetic
-`event.emit` with name `subscription.backfill_complete`:
+`subscribe.event` with name `subscription.backfill_complete`:
 
 ```swift
 for await envelope in client.unhandled {
@@ -101,7 +101,7 @@ in `subscribe.event` and delivered to the subscriber's transport.
 
 Backfill runs in a child `Task`, scanning the `EventLog` for historical
 matches and emitting them before switching to live routing. A synthetic
-`subscription.backfill_complete` `event.emit` marks the end of historical
+`subscription.backfill_complete` `subscribe.event` marks the end of historical
 data.
 
 ## Multiple subscribers

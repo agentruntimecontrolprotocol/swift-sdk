@@ -3,7 +3,7 @@
 ## Requirements
 
 - Swift 6.1 toolchain or later
-- macOS 14+ or Linux (Ubuntu 22.04+)
+- macOS 14+
 
 ## Add to your Swift package
 

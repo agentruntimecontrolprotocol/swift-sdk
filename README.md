@@ -28,7 +28,7 @@ ARCP itself is a transport-agnostic wire protocol for long-running AI agent jobs
 
 ## Installation
 
-Requires Swift 6.1 or later and macOS 14+ (or recent Ubuntu LTS). The SDK ships as a single Swift Package Manager package named `ARCP` with one executable product, `arcp`, for the bundled CLI. Add the dependency to your `Package.swift`:
+Requires Swift 6.1 or later and macOS 14+. The SDK ships as a single Swift Package Manager package named `ARCP` with one executable product, `arcp`, for the bundled CLI. Add the dependency to your `Package.swift`:
 
 ```swift
 dependencies: [
@@ -86,7 +86,7 @@ This is the whole shape of the SDK: open a session, submit work, consume an orde
 
 ARCP organizes everything around four concerns — **identity**, **durability**, **authority**, and **observability** — expressed through five core objects:
 
-- **Session** — a connection between a client and a runtime. A session carries identity (a bearer token), negotiates a feature set in a `hello`/`welcome` handshake, and is *resumable*: if the transport drops, you reconnect with a resume token and the runtime replays buffered events. Jobs outlive the session that started them. See [§6](https://github.com/agentruntimecontrolprotocol/spec/blob/main/docs/draft-arcp-1.1.md).
+- **Session** — a connection between a client and a runtime. A session carries identity (a bearer token), negotiates a feature set in a `session.open`/`session.accepted` handshake, and is *resumable*: if the transport drops, you reconnect with a resume token and the runtime replays buffered events. Jobs outlive the session that started them. See [§6](https://github.com/agentruntimecontrolprotocol/spec/blob/main/docs/draft-arcp-1.1.md).
 - **Job** — one unit of agent work submitted into a session. A job has an identity, an optional idempotency key, a resolved agent version, and a lifecycle that ends in exactly one terminal state: `success`, `error`, `cancelled`, or `timed_out`. See [§7](https://github.com/agentruntimecontrolprotocol/spec/blob/main/docs/draft-arcp-1.1.md).
 - **Event** — the ordered, session-scoped stream a job emits: logs, thoughts, tool calls and results, status, metrics, artifact references, progress, and streamed result chunks. Events carry strictly monotonic sequence numbers so the stream survives reconnects gap-free. See [§8](https://github.com/agentruntimecontrolprotocol/spec/blob/main/docs/draft-arcp-1.1.md).
 - **Lease** — the authority a job runs under, expressed as capability grants (`fs.read`, `fs.write`, `net.fetch`, `tool.call`, `agent.delegate`, `cost.budget`, `model.use`). The runtime enforces the lease at every operation boundary; a job can never act outside it. Leases may carry a budget and an expiry, and may be subset and handed to sub-agents via delegation. See [§9](https://github.com/agentruntimecontrolprotocol/spec/blob/main/docs/draft-arcp-1.1.md).
@@ -272,7 +272,7 @@ do {
 
 ## Feature support
 
-ARCP features this SDK negotiates during the `hello`/`welcome` handshake:
+ARCP features this SDK negotiates during the `session.open`/`session.accepted` handshake:
 
 | Feature flag | Status |
 |---|---|
@@ -298,7 +298,7 @@ Full API reference — every type, method, and event payload — is in [`docs/`]
 
 ## Versioning and compatibility
 
-This SDK speaks **ARCP v1.1 (draft)**. The SDK follows semantic versioning independently of the protocol; the protocol version it negotiates is shown above and in `session.hello`. A runtime advertising a different ARCP MAJOR is not guaranteed compatible. Feature mismatches degrade gracefully: the effective feature set is the intersection of what the client and runtime advertise, and the SDK will not use a feature outside it.
+This SDK speaks **ARCP v1.1 (draft)**. The SDK follows semantic versioning independently of the protocol; the protocol version it negotiates is shown above and in `session.accepted`. A runtime advertising a different ARCP MAJOR is not guaranteed compatible. Feature mismatches degrade gracefully: the effective feature set is the intersection of what the client and runtime advertise, and the SDK will not use a feature outside it.
 
 ## Contributing
 

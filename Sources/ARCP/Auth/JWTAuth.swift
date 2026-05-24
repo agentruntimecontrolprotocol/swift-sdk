@@ -3,9 +3,9 @@ import JWTKit
 
 /// `signed_jwt` validator. RFC §8.2.
 ///
-/// Validates the JWT's signature against the configured key collection,
-/// asserts `aud` matches the runtime identity, and (optionally) maps the
-/// `sub` claim through `principalMapper` before returning.
+/// Validates the JWT's signature against the configured key collection
+/// and asserts `aud` matches the runtime identity before returning the
+/// authenticated principal.
 public struct JWTAuthValidator: AuthValidator {
     private let keys: JWTKeyCollection
     private let audience: String
