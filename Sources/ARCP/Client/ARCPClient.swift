@@ -1,10 +1,9 @@
 import Foundation
 import Logging
 
-/// Client-side handle for an ARCP session. Drives the four-step handshake
-/// (RFC §8.1) and exposes message send/receive primitives. Phase 2 ships the
-/// handshake, `ping`, and a generic `send` / unhandled-stream surface; richer
-/// operations (`invoke`, `subscribe`, etc.) land in subsequent phases.
+/// Client-side handle for an ARCP session. Drives the handshake
+/// (RFC §8.1) and exposes message send/receive primitives plus the
+/// higher-level job and subscription helpers shipped in this package.
 public actor ARCPClient {
     public nonisolated let info: SessionInfo
     private let transport: any Transport
@@ -33,8 +32,8 @@ public actor ARCPClient {
     }
 
     /// Async stream of envelopes the client did not consume internally.
-    /// Phase 3+ subsystems (job tracker, stream subscribers, ...) will drain
-    /// this and route to typed callbacks.
+    /// Callers can observe this for protocol extensions or diagnostics
+    /// that do not have a typed surface yet.
     public nonisolated let unhandled: AsyncStream<Envelope>
 
     private init(
@@ -55,6 +54,14 @@ public actor ARCPClient {
 
     /// Open a new ARCP session over `transport`. Performs the full handshake
     /// (RFC §8.1) and returns once `session.accepted` is received.
+    ///
+    /// - Parameters:
+    ///   - transport: Transport used for the session.
+    ///   - auth: Authentication block sent in `session.open`.
+    ///   - client: Client identity advertised during the handshake.
+    ///   - capabilities: Capabilities offered to the runtime.
+    /// - Returns: A connected client once `session.accepted` is received.
+    /// - Throws: `ARCPError` when the handshake is rejected or times out.
     public static func open(
         transport: any Transport,
         auth: AuthBlock,
@@ -347,6 +354,8 @@ public actor ARCPClient {
     }
 
     /// Send `session.close` and tear down the underlying transport.
+    ///
+    /// - Parameter reason: Optional close reason forwarded to the runtime.
     public func close(reason: String? = nil) async {
         let envelope = Envelope(
             sessionId: info.sessionId,
@@ -360,6 +369,8 @@ public actor ARCPClient {
 
     /// Lower-level send for callers that need to emit arbitrary envelopes.
     /// The session id is set automatically if absent.
+    ///
+    /// - Parameter envelope: Envelope to send.
     public func send(_ envelope: Envelope) async throws {
         let stamped = envelope.sessionId == nil ? envelope.with(sessionId: info.sessionId) : envelope
         try await transport.send(stamped)
@@ -376,6 +387,15 @@ public actor ARCPClient {
     /// Invoke a tool. Awaits the terminal `job.completed` / `job.failed` /
     /// `job.cancelled` envelope and returns it together with a (drained)
     /// progress stream. RFC §6.3 / §10.
+    ///
+    /// - Parameters:
+    ///   - tool: Tool or agent name to invoke.
+    ///   - arguments: JSON arguments passed to the runtime.
+    ///   - costBudget: Optional per-currency spend cap.
+    ///   - modelUse: Optional model usage policy.
+    ///   - leaseConstraints: Optional lease expiry constraint.
+    ///   - idempotencyKey: Optional idempotency key.
+    /// - Returns: The invocation result, including the job id and outcome.
     public func invoke(
         tool: String,
         arguments: JSONValue,
@@ -426,6 +446,11 @@ public actor ARCPClient {
     }
 
     /// Send a `cancel` request for a running job.
+    ///
+    /// - Parameters:
+    ///   - jobId: Job to cancel.
+    ///   - reason: Optional cancellation reason.
+    ///   - deadlineMs: Maximum wait before the runtime stops the job.
     public func cancelJob(_ jobId: JobId, reason: String? = nil, deadlineMs: Int = 5_000) async throws {
         try await send(
             Envelope(

@@ -17,10 +17,21 @@ public struct JWTAuthValidator: AuthValidator {
         self.trustLevel = trustLevel
     }
 
+    /// Return `true` when the validator can handle the supplied scheme.
+    ///
+    /// - Parameter scheme: Auth scheme advertised by the peer.
+    /// - Returns: `true` for `signed_jwt`.
     public func supports(_ scheme: AuthScheme) -> Bool {
         scheme == .signedJwt
     }
 
+    /// Validate a `signed_jwt` credential and return the authenticated principal.
+    ///
+    /// - Parameters:
+    ///   - auth: Authentication block received during the handshake.
+    ///   - nonce: Optional challenge nonce from the runtime.
+    /// - Returns: The authenticated principal.
+    /// - Throws: `ARCPError.unauthenticated` when the token is missing or invalid.
     public func validate(
         auth: AuthBlock,
         challenge nonce: String?

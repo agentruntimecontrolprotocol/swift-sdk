@@ -12,7 +12,8 @@ when a third-party orchestrator calls your agent but you need to constrain
 which resources it can touch.
 
 Key concepts:
-- `LeaseConstraints` with `expiresAt`, `costBudget`, and `modelUse` fields
+- `ToolInvokePayload` with `costBudget`, `modelUse`, and `leaseConstraints`
+  fields
 - `CredentialProvisioner` issuing scoped SMTP credentials
 - Lease expiry check inside a long-running `ToolHandler`
 - `LEASE_EXPIRED` error propagation back to the caller
@@ -29,7 +30,8 @@ tracking, and permission challenges.
 
 Key concepts:
 - `ToolHandler` adapter pattern
-- Forwarding `JobContext.heartbeat()` across the MCP boundary
+- Forwarding the runtime's heartbeat-driven work loop across the MCP
+  boundary
 - Mapping MCP errors to `ARCPError` / `ErrorCode`
 - `MemoryTransport` for unit-testing the adapter
 

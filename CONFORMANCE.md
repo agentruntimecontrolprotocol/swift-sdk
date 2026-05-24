@@ -12,7 +12,7 @@ below.
 ### Core wire protocol (§4 – §8)
 
 - `Envelope` framing, ULID ids, error codes, extension registry
-- Four-step handshake (§8.1): `session.open`, `session.accept`, `session.ready`, `session.close`
+- Four-step handshake (§8.1): `session.open`, `session.challenge` / `session.authenticate` (optional), `session.accepted`, `session.close`
 - Auth schemes: `bearer` (§8.2), `signed_jwt` (§8.3), `none` (§8.4)
 - Capability negotiation (§7): structured `capabilities` block, subset checks
 

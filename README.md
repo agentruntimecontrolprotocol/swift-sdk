@@ -298,7 +298,7 @@ Full API reference — every type, method, and event payload — is in [`docs/`]
 
 ## Versioning and compatibility
 
-This SDK speaks **ARCP v1.1 (draft)**. The SDK follows semantic versioning independently of the protocol; the protocol version it negotiates is shown above and in `session.accepted`. A runtime advertising a different ARCP MAJOR is not guaranteed compatible. Feature mismatches degrade gracefully: the effective feature set is the intersection of what the client and runtime advertise, and the SDK will not use a feature outside it.
+This SDK speaks **ARCP v1.1 (draft)**. The SDK follows semantic versioning independently of the protocol; the negotiated runtime version is available on `client.info.runtimeIdentity.version`. A runtime advertising a different ARCP MAJOR is not guaranteed compatible. Feature mismatches degrade gracefully: the effective feature set is the intersection of what the client and runtime advertise, and the SDK will not use a feature outside it.
 
 ## Contributing
 
