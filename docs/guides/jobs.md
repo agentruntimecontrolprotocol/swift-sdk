@@ -128,11 +128,13 @@ the full request/observe loop.
 
 ## Interrupts
 
-An interrupt is a separate control signal; the runtime delivers
-`job.interrupt` to the handler without changing the job's terminal
-disposition. Different from cancellation — the job continues running
-once the interrupt is observed. See `interrupt` capability flag in
-`Capabilities` and the runtime's `handleInterrupt` path.
+An interrupt is a separate control signal. In this SDK the runtime's
+`handleInterrupt` path currently only transitions the job state to
+`.blocked` and sends an `ack` — there is **no handler-visible callback**
+that lets the running job observe or respond to an interrupt. As a
+result, `Capabilities.interrupt` defaults to `false` and should be left
+that way unless you have wired your own observer. A future release may
+add a `JobContext` API that surfaces interrupts to the handler.
 
 ## Listing jobs
 
@@ -168,9 +170,15 @@ See the [`ListJobs` sample](../../Samples/ListJobs).
 The runtime emits `job.heartbeat` envelopes (carrying `sequence`,
 `deadlineMs`, and `JobState`) automatically while a handler runs. The
 default heartbeat interval is 30 seconds and is configurable on
-`Capabilities.heartbeatIntervalSeconds`. If the runtime stops receiving
-acks within the configured window it emits `HEARTBEAT_LOST` and
-transitions the job to `failed`.
+`Capabilities.heartbeatIntervalSeconds`.
+
+> **Heartbeat recovery is not implemented in this release.** The runtime
+> emits heartbeat telemetry only — it does **not** track inbound `ack`
+> envelopes, does **not** detect missed acknowledgements, and does
+> **not** transition the job to `failed` with `HEARTBEAT_LOST`. Treat
+> heartbeats as a one-way liveness signal for the client and avoid
+> advertising `Capabilities.heartbeatRecovery` as `.fail` until a real
+> ack-tracking implementation lands.
 
 Handlers don't call a heartbeat method directly — keep the work
 cooperative (`Task.yield()` inside CPU-bound loops) so the runtime's

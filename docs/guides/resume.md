@@ -4,14 +4,36 @@ ARCP supports resuming a session from a specific message id, recovering
 after a network drop or process crash without replaying from the
 beginning (RFC §19).
 
+## Scope in this SDK
+
+This release implements **same-session event-log replay only**:
+
+- After a transport drop, you must reconnect over a fresh transport.
+  The runtime accepts the resume request on the *new* session and
+  replays from the new session's event log starting after
+  `after_message_id`.
+- **Cross-session resume is not implemented** — i.e. you cannot use
+  `after_message_id` from a prior session to recover events that the
+  prior session emitted. The runtime has no mapping from one session id
+  to another, and the replay query is scoped to the current session id.
+  Resume in this SDK works only when the same session id survives the
+  reconnect (e.g. when the transport drops but the runtime can be told
+  to continue using the same `session_id`).
+- `checkpoint_id` is **not** implemented and returns
+  `ARCPError.unimplemented`.
+- `include_open_streams` is currently ignored — open streams are not
+  re-emitted by the runtime.
+
+A future release may add a resume-token handshake that authorizes
+cross-session continuation.
+
 ## How it works
 
 Every envelope is stored in the `EventLog` with its `id` (a ULID).
-After a transport drop, open a fresh session and send a `resume`
-envelope carrying `after_message_id`; the runtime replays every
-envelope with id greater than that cutoff and then resumes live
-delivery. It terminates the replay with an `ack` whose `detail`
-reports the number of replayed events.
+A `resume` envelope carrying `after_message_id` triggers the runtime to
+replay every envelope with id greater than that cutoff (for the current
+session) and then resume live delivery. It terminates the replay with
+an `ack` whose `detail` reports the number of replayed events.
 
 ## Reconnecting with a resume point
 

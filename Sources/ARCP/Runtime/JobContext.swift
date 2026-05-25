@@ -4,7 +4,9 @@ import Foundation
 /// streaming, cancellation observation, permission/lease hooks, and
 /// provisioned-credential rotation.
 public protocol JobContext: Sendable {
+    /// The job identifier currently being executed.
     var jobId: JobId { get }
+    /// The session in which the job is running.
     var sessionId: SessionId { get }
 
     /// The `lease_constraints.expires_at` declared on `tool.invoke`,
@@ -133,9 +135,14 @@ extension JobContext {
 
 /// Handle returned by `JobContext.openStream` for emitting chunks until close.
 public protocol StreamHandle: Sendable {
+    /// Identifier of the open stream.
     var streamId: StreamId { get }
+    /// Send a text chunk; optional ordinal `sequence` for ordering hints.
     func sendText(_ text: String, sequence: Int?) async throws
+    /// Send a fully-formed `stream.chunk` payload.
     func sendChunk(_ payload: StreamChunkPayload) async throws
+    /// Close the stream gracefully with an optional reason.
     func close(reason: String?) async throws
+    /// Close the stream with an error (`stream.error` envelope).
     func error(_ error: ARCPError) async throws
 }

@@ -11,7 +11,14 @@ public actor ARCPClient {
     private let mailbox: Mailbox<Envelope>
     private let drainer: Task<Void, Never>
     private var dispatcher: Task<Void, Never>?
-    private var pendingPongs: [MessageId: CheckedContinuation<PongPayload, any Error>] = [:]
+    private var pendingPongs: [MessageId: PongSlot] = [:]
+
+    private enum PongSlot {
+        case pending
+        case waiting(CheckedContinuation<PongPayload, any Error>)
+        case readyValue(PongPayload)
+        case readyError(any Error)
+    }
     private var pendingByInvoke: [MessageId: JobInvocationState] = [:]
     private var invokeByJobId: [JobId: MessageId] = [:]
     private var resultChunkStreams: [JobId: ResultChunkStream] = [:]
@@ -165,9 +172,17 @@ public actor ARCPClient {
         switch envelope.payload {
         case .pong(let payload):
             if let id = envelope.correlationId,
-                let cont = pendingPongs.removeValue(forKey: id)
+                let slot = pendingPongs[id]
             {
-                cont.resume(returning: payload)
+                switch slot {
+                case .pending:
+                    pendingPongs[id] = .readyValue(payload)
+                case .waiting(let cont):
+                    pendingPongs.removeValue(forKey: id)
+                    cont.resume(returning: payload)
+                case .readyValue, .readyError:
+                    unhandledContinuation?.yield(envelope)
+                }
             } else {
                 unhandledContinuation?.yield(envelope)
             }
@@ -184,6 +199,8 @@ public actor ARCPClient {
                 let state = pendingByInvoke[invokeId]
             {
                 state.progressContinuation?.yield(payload)
+            } else {
+                unhandledContinuation?.yield(envelope)
             }
         case .jobCompleted(let payload):
             if let jobId = envelope.jobId {
@@ -222,11 +239,14 @@ public actor ARCPClient {
         case .jobResultChunk(let payload):
             if let jobId = envelope.jobId, let stream = resultChunkStreams[jobId] {
                 try? await stream.push(payload)
+            } else {
+                unhandledContinuation?.yield(envelope)
             }
-            unhandledContinuation?.yield(envelope)
         case .toolError(let payload):
             if let invokeId = envelope.correlationId, pendingByInvoke[invokeId] != nil {
                 resolve(invokeId: invokeId, outcome: .failed(payload.error))
+            } else {
+                unhandledContinuation?.yield(envelope)
             }
         case .permissionRequest(let payload):
             Task { [transport, permissionHandler] in
@@ -301,10 +321,31 @@ public actor ARCPClient {
     private func finishUnhandled() {
         unhandledContinuation?.finish()
         unhandledContinuation = nil
-        for (_, cont) in pendingPongs {
-            cont.resume(throwing: ARCPError.unavailable(reason: "transport closed", retryAfter: nil))
-        }
+        let closedError = ARCPError.unavailable(reason: "transport closed", retryAfter: nil)
+        let pongSlots = pendingPongs
         pendingPongs.removeAll()
+        for (_, slot) in pongSlots {
+            switch slot {
+            case .waiting(let cont):
+                cont.resume(throwing: closedError)
+            case .pending, .readyValue, .readyError:
+                break
+            }
+        }
+        let pending = pendingByInvoke
+        pendingByInvoke.removeAll()
+        invokeByJobId.removeAll()
+        for (_, state) in pending {
+            state.progressContinuation?.finish()
+            state.continuation?.resume(throwing: closedError)
+        }
+        let streams = resultChunkStreams
+        resultChunkStreams.removeAll()
+        Task {
+            for (_, stream) in streams {
+                await stream.fail(closedError)
+            }
+        }
     }
 
     /// Send a `ping`, await the corresponding `pong`. Times out after `timeout`.
@@ -315,41 +356,55 @@ public actor ARCPClient {
         -> PongPayload
     {
         let id = MessageId.random()
+        pendingPongs[id] = .pending
         let envelope = Envelope(
             id: id,
             sessionId: info.sessionId,
             payload: .ping(PingPayload(nonce: nonce))
         )
-        try await transport.send(envelope)
-        return try await withThrowingTaskGroup(of: PongPayload.self) { group in
-            group.addTask { [weak self] in
-                guard let self = self else {
-                    throw ARCPError.unavailable(reason: "client released", retryAfter: nil)
-                }
-                return try await self.awaitPong(id: id)
-            }
-            group.addTask { [weak self] in
-                try await Task.sleep(for: timeout)
-                await self?.failPongWaiter(id: id)
-                throw ARCPError.deadlineExceeded(operation: "ping \(id)")
-            }
-            defer { group.cancelAll() }
-            guard let result = try await group.next() else {
-                throw ARCPError.internal(detail: "ping group empty", cause: nil)
-            }
-            return result
+        let timeoutTask = Task { [weak self] in
+            try? await Task.sleep(for: timeout)
+            if Task.isCancelled { return }
+            await self?.failPongWaiter(id: id)
         }
+        defer { timeoutTask.cancel() }
+        do {
+            try await transport.send(envelope)
+        } catch {
+            pendingPongs.removeValue(forKey: id)
+            throw error
+        }
+        return try await awaitPong(id: id)
     }
 
     private func awaitPong(id: MessageId) async throws -> PongPayload {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<PongPayload, Error>) in
-            pendingPongs[id] = cont
+            switch pendingPongs[id] {
+            case .readyValue(let payload):
+                pendingPongs.removeValue(forKey: id)
+                cont.resume(returning: payload)
+            case .readyError(let err):
+                pendingPongs.removeValue(forKey: id)
+                cont.resume(throwing: err)
+            case .pending, .none:
+                pendingPongs[id] = .waiting(cont)
+            case .waiting:
+                cont.resume(throwing: ARCPError.internal(detail: "double-attach pong \(id)", cause: nil))
+            }
         }
     }
 
     private func failPongWaiter(id: MessageId) {
-        if let cont = pendingPongs.removeValue(forKey: id) {
-            cont.resume(throwing: ARCPError.deadlineExceeded(operation: "ping \(id)"))
+        guard let slot = pendingPongs[id] else { return }
+        let err = ARCPError.deadlineExceeded(operation: "ping \(id)")
+        switch slot {
+        case .pending:
+            pendingPongs[id] = .readyError(err)
+        case .waiting(let cont):
+            pendingPongs.removeValue(forKey: id)
+            cont.resume(throwing: err)
+        case .readyValue, .readyError:
+            break
         }
     }
 
@@ -426,7 +481,14 @@ public actor ARCPClient {
                 )
             )
         )
-        try await transport.send(envelope)
+        do {
+            try await transport.send(envelope)
+        } catch {
+            if let state = pendingByInvoke.removeValue(forKey: invokeId) {
+                state.progressContinuation?.finish()
+            }
+            throw error
+        }
         let (outcome, jobId) = try await withCheckedThrowingContinuation { cont in
             attachContinuation(invokeId: invokeId, cont: cont)
         }

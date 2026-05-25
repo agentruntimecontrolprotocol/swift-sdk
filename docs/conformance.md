@@ -11,7 +11,7 @@ Swift SDK. The authoritative detail is in
 | Envelope format | §6.1 | All fields; ULID IDs |
 | Four-step handshake | §8.1 | `bearer`, `signed_jwt`, `none` |
 | Capability negotiation | §7 | Intersection of client + runtime caps |
-| Durable jobs | §10 | State machine, heartbeats, cancel, interrupt |
+| Durable jobs | §10 | State machine, heartbeat telemetry, cancel. `interrupt` is wire-acked only — no handler observation callback. |
 | Multi-kind streams | §11 | text, event, log, thought, metric, base64 binary + backpressure |
 | Permission challenges | §15.4 | Grant, refresh, revoke, expiry sweep |
 | Leases: `expires_at` | §9.5 | Submission validation + in-handler expiry check |

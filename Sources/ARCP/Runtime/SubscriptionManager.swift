@@ -23,11 +23,16 @@ public actor SubscriptionManager {
     /// match, ending with a synthetic `subscription.backfill_complete` event.
     public func subscribe(
         subscriptionId: SubscriptionId,
+        ownerSessionId: SessionId? = nil,
         filter: SubscriptionFilter,
         since: SubscriptionSince?,
         send: @escaping @Sendable (Envelope) async throws -> Void
     ) async {
-        subscriptions[subscriptionId] = SubscriptionRecord(filter: filter, send: send)
+        subscriptions[subscriptionId] = SubscriptionRecord(
+            ownerSessionId: ownerSessionId,
+            filter: filter,
+            send: send
+        )
         if let since {
             Task { [weak self] in
                 await self?.backfill(subscriptionId: subscriptionId, since: since)
@@ -39,8 +44,36 @@ public actor SubscriptionManager {
         subscriptions.removeValue(forKey: subscriptionId)
     }
 
+    /// Remove every subscription owned by `sessionId`, attempting to notify
+    /// each one with a `subscribe.closed` envelope. Cleanup proceeds even if
+    /// the notification fails (the owning transport is typically already shut).
+    public func removeAllOwned(by sessionId: SessionId, reason: String) async {
+        let owned = subscriptions.filter { $0.value.ownerSessionId == sessionId }
+        for (subId, record) in owned {
+            subscriptions.removeValue(forKey: subId)
+            try? await record.send(
+                Envelope(
+                    sessionId: sessionId,
+                    subscriptionId: subId,
+                    payload: .subscribeClosed(
+                        SubscribeClosedPayload(
+                            subscriptionId: subId,
+                            code: .unavailable,
+                            reason: reason
+                        )
+                    )
+                )
+            )
+        }
+    }
+
     /// Push `envelope` to every subscriber whose filter matches.
+    ///
+    /// `subscribe.event` envelopes are ignored to prevent a subscriber with an
+    /// empty filter from re-wrapping its own delivery into another
+    /// `subscribe.event` and cascading without bound.
     public func route(envelope: Envelope) async {
+        if case .subscribeEvent = envelope.payload { return }
         for (subId, record) in subscriptions where record.matches(envelope) {
             try? await record.send(
                 Envelope(
@@ -137,6 +170,7 @@ public actor SubscriptionManager {
     }
 
     private struct SubscriptionRecord: Sendable {
+        let ownerSessionId: SessionId?
         let filter: SubscriptionFilter
         let send: @Sendable (Envelope) async throws -> Void
 

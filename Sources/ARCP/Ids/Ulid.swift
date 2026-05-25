@@ -30,15 +30,28 @@ private final class MonotonicGenerator: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         var random = [UInt8](repeating: 0, count: 10)
-        let timeMs: UInt64
-        if nowMs == lastTime {
-            timeMs = lastTime
-            random = lastRandom
-            increment(&random)
-        } else {
+        var timeMs: UInt64
+        if nowMs > lastTime {
+            // System clock advanced — start a fresh random tail.
             timeMs = nowMs
             for index in 0..<10 {
                 random[index] = UInt8.random(in: 0...255)
+            }
+        } else {
+            // Clock equals or moved backwards. Hold the previous timestamp
+            // and increment the previous random tail so the new id sorts
+            // strictly after the last one. RFC §6.2 monotonicity.
+            timeMs = lastTime
+            random = lastRandom
+            if !increment(&random) {
+                // Tail overflowed. Advance the timestamp by one millisecond
+                // and restart the tail with a fresh random value so we never
+                // emit an id with a lower-or-equal sort key under the same
+                // timestamp.
+                timeMs = lastTime &+ 1
+                for index in 0..<10 {
+                    random[index] = UInt8.random(in: 0...255)
+                }
             }
         }
         lastTime = timeMs
@@ -46,14 +59,17 @@ private final class MonotonicGenerator: @unchecked Sendable {
         return encode(time: timeMs, random: random)
     }
 
-    private func increment(_ bytes: inout [UInt8]) {
+    /// Increment `bytes` as a big-endian integer. Returns `false` when the
+    /// value overflowed (all bytes were `0xFF`), `true` otherwise.
+    private func increment(_ bytes: inout [UInt8]) -> Bool {
         for index in (0..<bytes.count).reversed() {
             if bytes[index] < 0xFF {
                 bytes[index] &+= 1
-                return
+                return true
             }
             bytes[index] = 0
         }
+        return false
     }
 
     private func encode(time: UInt64, random: [UInt8]) -> String {

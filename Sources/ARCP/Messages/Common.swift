@@ -2,25 +2,51 @@ import Foundation
 
 /// Negotiated client/runtime capabilities. RFC §7.
 public struct Capabilities: Sendable, Codable, Hashable {
+    /// Whether the peer supports multi-kind streams (RFC §11).
     public var streaming: Bool
+    /// Whether the peer supports durable-job semantics (RFC §10).
     public var durableJobs: Bool
+    /// Whether the peer supports checkpointed resume (RFC §19) — currently
+    /// not implemented in this SDK.
     public var checkpoints: Bool
+    /// Whether the peer supports binary stream frames (RFC §11.3).
     public var binaryStreams: Bool
+    /// Whether the peer supports cross-agent handoff (RFC §14).
     public var agentHandoff: Bool
+    /// Whether inline-base64 artifacts are supported (RFC §16).
     public var artifacts: Bool
+    /// Whether subscriptions are supported (RFC §13).
     public var subscriptions: Bool
+    /// Whether the peer supports scheduled jobs (RFC §14) — currently not
+    /// implemented.
     public var scheduledJobs: Bool
+    /// Whether `scheme=none` (anonymous) handshakes are accepted.
     public var anonymous: Bool
+    /// Whether the peer advertises the `interrupt` control flow. **Leave
+    /// `false`** in this SDK release — see [Interrupts in the jobs
+    /// guide](https://github.com/agentruntimecontrolprotocol/swift-sdk/blob/main/docs/guides/jobs.md);
+    /// the runtime acks interrupts but does not surface them to handlers.
     public var interrupt: Bool
+    /// Whether `job.result_chunk` streaming is supported (RFC §8.4).
     public var resultChunk: Bool
+    /// Whether `cost.budget` accounting is supported (RFC §9.6).
     public var costBudget: Bool
+    /// Whether `model.use` lease pattern enforcement is supported (RFC §9.7).
     public var modelUse: Bool
+    /// Whether provisioned-credential issuance is supported (RFC §9.8).
     public var provisionedCredentials: Bool
+    /// Heartbeat recovery policy (RFC §10.3). **Heartbeat ack tracking is
+    /// not implemented in this release** — heartbeats are telemetry only.
     public var heartbeatRecovery: HeartbeatRecovery
+    /// Heartbeat interval in seconds.
     public var heartbeatIntervalSeconds: Int
+    /// Accepted binary stream encodings.
     public var binaryEncoding: [BinaryEncoding]
+    /// Artifact retention policy (RFC §16.3).
     public var artifactRetention: ArtifactRetention?
+    /// Negotiated set of advertised extension namespaces (RFC §21).
     public var extensions: [String]
+    /// Free-form extras the spec does not enumerate.
     public var extras: [String: Bool]
     /// Runtime-side advertisement of available agents (ARCP v1.1 §7.5).
     /// Accepts both v1.0 flat-name and v1.1 rich shapes.

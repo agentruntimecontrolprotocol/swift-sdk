@@ -4,6 +4,7 @@
 public struct BearerAuthValidator: AuthValidator {
     private let principals: [String: AuthenticatedPrincipal]
 
+    /// Initialize with an explicit token → principal map.
     public init(_ principals: [String: AuthenticatedPrincipal]) {
         self.principals = principals
     }
@@ -17,10 +18,13 @@ public struct BearerAuthValidator: AuthValidator {
         self.principals = map
     }
 
+    /// Returns `true` for `bearer`.
     public func supports(_ scheme: AuthScheme) -> Bool {
         scheme == .bearer
     }
 
+    /// Validate the bearer token and return the mapped principal, or throw
+    /// `ARCPError.unauthenticated` on failure.
     public func validate(
         auth: AuthBlock,
         challenge nonce: String?

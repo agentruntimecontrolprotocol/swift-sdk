@@ -65,7 +65,18 @@ public actor StreamManager {
     }
 
     /// Subscribe to inbound chunks of a stream.
-    public func subscribeInbound(streamId: StreamId) -> AsyncStream<StreamChunkPayload> {
+    ///
+    /// A stream id is single-subscriber: calling this more than once for the
+    /// same `streamId` throws `ARCPError.failedPrecondition`. The previous
+    /// behavior of silently replacing the existing continuation orphaned the
+    /// first subscriber, so subsequent chunks were never delivered and the
+    /// original stream never finished.
+    public func subscribeInbound(streamId: StreamId) throws -> AsyncStream<StreamChunkPayload> {
+        if inboundContinuations[streamId] != nil {
+            throw ARCPError.failedPrecondition(
+                detail: "stream \(streamId) already has an inbound subscriber"
+            )
+        }
         var continuation: AsyncStream<StreamChunkPayload>.Continuation!
         let stream = AsyncStream<StreamChunkPayload> { continuation = $0 }
         inboundContinuations[streamId] = continuation
