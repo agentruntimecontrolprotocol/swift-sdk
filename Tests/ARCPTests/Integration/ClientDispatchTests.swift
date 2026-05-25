@@ -21,10 +21,12 @@ struct ClientDispatchTests {
             )
         )
 
-        let envelope = try await firstUnhandled(client: client, predicate: { env in
-            if case .jobProgress = env.payload { return env.jobId == strayJobId }
-            return false
-        })
+        let envelope = try await firstUnhandled(
+            client: client,
+            predicate: { env in
+                if case .jobProgress = env.payload { return env.jobId == strayJobId }
+                return false
+            })
         #expect(envelope.jobId == strayJobId)
     }
 
@@ -51,10 +53,12 @@ struct ClientDispatchTests {
             )
         )
 
-        let envelope = try await firstUnhandled(client: client, predicate: { env in
-            if case .jobResultChunk = env.payload { return env.jobId == strayJobId }
-            return false
-        })
+        let envelope = try await firstUnhandled(
+            client: client,
+            predicate: { env in
+                if case .jobResultChunk = env.payload { return env.jobId == strayJobId }
+                return false
+            })
         #expect(envelope.jobId == strayJobId)
     }
 
@@ -75,10 +79,12 @@ struct ClientDispatchTests {
             )
         )
 
-        let envelope = try await firstUnhandled(client: client, predicate: { env in
-            if case .toolError = env.payload { return true }
-            return false
-        })
+        let envelope = try await firstUnhandled(
+            client: client,
+            predicate: { env in
+                if case .toolError = env.payload { return true }
+                return false
+            })
         if case .toolError = envelope.payload {
             // matched
         } else {
