@@ -78,8 +78,40 @@ jobs:
       - name: Build
         run: swift build --build-tests
 
-      - name: Test
-        run: swift test --skip-build
+      - name: Test (with code coverage)
+        run: swift test --skip-build --enable-code-coverage
+
+      # swift test --enable-code-coverage produces a profdata file under
+      # .build/<arch>/debug/codecov/. Export to lcov via llvm-cov so
+      # Codecov can parse it. Non-blocking so a Codecov outage cannot
+      # break CI.
+      - name: Export coverage (lcov)
+        run: |
+          binary=$(swift build --show-bin-path)
+          profdata="$binary/codecov/default.profdata"
+          xctest=$(find "$binary" -maxdepth 3 -name "*.xctest" -print -quit)
+          # SwiftPM packages tests inside a .xctest bundle. On macOS the
+          # executable lives at <bundle>/Contents/MacOS/<name>.
+          if [[ -d "$xctest/Contents/MacOS" ]]; then
+            exe=$(find "$xctest/Contents/MacOS" -type f -perm -u+x -print -quit)
+          else
+            exe="$xctest"
+          fi
+          xcrun llvm-cov export "$exe" \
+            -instr-profile="$profdata" \
+            -format=lcov \
+            -ignore-filename-regex='(\.build|Tests)/' \
+            > coverage.lcov
+        shell: bash
+
+      - name: Upload coverage to Codecov
+        # codecov/codecov-action v6.0.1
+        uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6.0.1
+        with:
+          fail_ci_if_error: false
+          flags: unittests
+          files: ./coverage.lcov
+          token: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Upload test artifacts on failure
         if: failure()
