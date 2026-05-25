@@ -62,22 +62,44 @@ public actor CredentialManager {
         try? await retention.persistOutstanding([], jobId: jobId)
     }
 
+    /// Rotate the credential identified by `credentialId` for `jobId`.
+    ///
+    /// The `CredentialProvisioner` contract is treated as returning the full
+    /// credential set for the lease (a provider may mint multiple paired
+    /// credentials per issuance — e.g. access + refresh token, or several
+    /// vendor credentials in a single transactional issue). The rotation
+    /// flow therefore:
+    ///
+    /// 1. Revokes the credential that is being rotated.
+    /// 2. Removes that credential from the job's tracked set.
+    /// 3. Appends every credential returned by the provisioner to the job's
+    ///    tracked set so the runtime can revoke them later — none are
+    ///    silently discarded.
+    /// 4. Persists the updated outstanding-id list through retention.
+    ///
+    /// Returns the credential identified as the replacement: the entry whose
+    /// `id` matches `credentialId` if the provisioner is performing an
+    /// in-place rotation, otherwise the first newly minted entry.
     public func rotate(jobId: JobId, credentialId: String) async throws -> ProvisionedCredential {
         guard let lease = leaseByJob[jobId] else {
             throw ARCPError.notFound(kind: "job credentials", id: jobId.rawValue)
         }
         let next = try await provisioner.issue(lease: lease, jobId: jobId, sessionId: sessionId)
-        guard let replacement = next.first else {
-            throw ARCPError.unavailable(reason: "credential rotation returned no credential", retryAfter: nil)
+        guard !next.isEmpty else {
+            throw ARCPError.unavailable(
+                reason: "credential rotation returned no credentials",
+                retryAfter: nil
+            )
         }
         var existing = credentialsByJob[jobId] ?? []
-        if let old = existing.first(where: { $0.id == credentialId }) {
-            await revokeWithRetry(old.id)
+        if existing.contains(where: { $0.id == credentialId }) {
+            await revokeWithRetry(credentialId)
             existing.removeAll { $0.id == credentialId }
         }
-        existing.append(replacement)
+        existing.append(contentsOf: next)
         credentialsByJob[jobId] = existing
         try await retention.persistOutstanding(existing.map(\.id), jobId: jobId)
+        let replacement = next.first(where: { $0.id == credentialId }) ?? next[0]
         return replacement
     }
 

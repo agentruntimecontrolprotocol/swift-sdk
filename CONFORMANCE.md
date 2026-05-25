@@ -19,7 +19,12 @@ below.
 ### Durable jobs (§9 – §14)
 
 - Job state machine: `queued → running → completed | failed | cancelled`
-- Heartbeats, cooperative cancellation (`job.cancel`), interrupts (`job.interrupt`)
+- Heartbeats (telemetry only — see below), cooperative cancellation (`job.cancel`).
+  Interrupts (`interrupt`) are **not advertised by default** — the current
+  runtime only transitions the job state to `.blocked` and acks the
+  envelope; there is no handler-visible callback that lets the running
+  job observe and respond to an interrupt. Leave
+  `Capabilities.interrupt = false` unless you have wired your own observer.
 - `tool.invoke` + `ToolHandler` adapter pattern
 - `JobContext`: `checkLeaseExpiration`, `checkCancellation`, `charge`, `log`,
   `metric`, `requestPermission`, `reportProgress`, `openStream`, `emitResultChunk`
@@ -65,7 +70,11 @@ below.
 ### Subscriptions (§18)
 
 - `subscription.filter`, backfill, `subscription.backfill_complete` boundary
-- Resume by `after_message_id`
+- Resume by `after_message_id` — **same-session only**: the runtime replays
+  envelopes for the current session id. Cross-session resume (carrying a
+  prior session's `after_message_id` into a fresh session) is not
+  implemented. `checkpoint_id` and `include_open_streams` are currently
+  ignored.
 
 ### Artifacts (§21)
 

@@ -54,4 +54,15 @@ struct IdsTests {
         #expect(a < b || a == b)
         #expect(b < c || b == c)
     }
+
+    // Issue #56: bursts within a single millisecond must remain strictly
+    // monotonic — the random tail is incremented on collision.
+    @Test("ULID burst stays strictly monotonic within a millisecond")
+    func ulidStrictlyMonotonicBurst() {
+        var ids: [String] = []
+        for _ in 0..<1024 { ids.append(Ulid.next()) }
+        let sorted = ids.sorted()
+        #expect(ids == sorted)
+        #expect(Set(ids).count == ids.count)
+    }
 }

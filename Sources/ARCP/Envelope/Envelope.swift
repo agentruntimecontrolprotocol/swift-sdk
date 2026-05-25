@@ -6,23 +6,43 @@ import Foundation
 /// snake_case key names defined in the RFC. The `payload` field is decoded by
 /// dispatching on the `type` string into `MessageType.decodePayload(...)`.
 public struct Envelope: Sendable, Hashable {
+    /// ARCP wire-version string (e.g. `"1.1"`). RFC §6.1.
     public var arcp: String
+    /// Globally unique message identifier (ULID). RFC §6.1.
     public var id: MessageId
+    /// Wall-clock creation timestamp.
     public var timestamp: Date
+    /// Free-form sender identifier (typically a deployment name).
     public var source: String?
+    /// Free-form recipient identifier.
     public var target: String?
+    /// Session this message belongs to. Required for any envelope persisted
+    /// to the event log.
     public var sessionId: SessionId?
+    /// Job this message belongs to, if any. RFC §7.
     public var jobId: JobId?
+    /// Stream this message belongs to, if any. RFC §11.
     public var streamId: StreamId?
+    /// Subscription this message belongs to, if any. RFC §13.
     public var subscriptionId: SubscriptionId?
+    /// Distributed-trace identifier (RFC §17.1). Inherits ambient
+    /// `Tracing.current` if not explicitly set.
     public var traceId: TraceId?
+    /// Span identifier for this envelope (RFC §17.1).
     public var spanId: SpanId?
+    /// Parent span identifier (RFC §17.1).
     public var parentSpanId: SpanId?
+    /// Identifier of the request this envelope responds to (RFC §6.1).
     public var correlationId: MessageId?
+    /// Identifier of the envelope that caused this one to be emitted.
     public var causationId: MessageId?
+    /// Idempotency key for tool-invocation retry safety (RFC §6.4).
     public var idempotencyKey: IdempotencyKey?
+    /// Priority hint for transports and subscription filters.
     public var priority: Priority
+    /// Free-form extension fields (RFC §21).
     public var extensions: [String: JSONValue]?
+    /// The strongly-typed payload (`type` + body) carried by the envelope.
     public var payload: MessageType
 
     public init(
@@ -54,9 +74,19 @@ public struct Envelope: Sendable, Hashable {
         self.jobId = jobId
         self.streamId = streamId
         self.subscriptionId = subscriptionId
-        self.traceId = traceId
-        self.spanId = spanId
-        self.parentSpanId = parentSpanId
+        // When trace fields are not explicitly set, inherit them from the
+        // ambient `Tracing.current` task-local context. The observability
+        // guide promises envelopes built inside `Tracing.withTrace` propagate
+        // the trace automatically (RFC §17.1).
+        if let trace = Tracing.current {
+            self.traceId = traceId ?? trace.traceId
+            self.spanId = spanId ?? trace.spanId
+            self.parentSpanId = parentSpanId ?? trace.parentSpanId
+        } else {
+            self.traceId = traceId
+            self.spanId = spanId
+            self.parentSpanId = parentSpanId
+        }
         self.correlationId = correlationId
         self.causationId = causationId
         self.idempotencyKey = idempotencyKey

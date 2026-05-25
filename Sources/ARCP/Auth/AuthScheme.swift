@@ -15,9 +15,12 @@ public protocol AuthValidator: Sendable {
 
 /// Result of successful credential validation.
 public struct AuthenticatedPrincipal: Sendable, Hashable {
+    /// Subject (`sub`) identifier of the authenticated principal.
     public var subject: String
+    /// Trust level granted to the principal by the validator.
     public var trustLevel: TrustLevel
 
+    /// Create an authenticated principal.
     public init(subject: String, trustLevel: TrustLevel = .trusted) {
         self.subject = subject
         self.trustLevel = trustLevel
@@ -26,16 +29,20 @@ public struct AuthenticatedPrincipal: Sendable, Hashable {
 
 /// Composite validator that fans out to scheme-specific validators.
 public struct CompositeAuthValidator: AuthValidator {
+    /// Validators that this composite fans out to in order.
     public let validators: [any AuthValidator]
 
+    /// Wrap a list of scheme-specific validators behind a single facade.
     public init(_ validators: [any AuthValidator]) {
         self.validators = validators
     }
 
+    /// Return `true` if any wrapped validator supports `scheme`.
     public func supports(_ scheme: AuthScheme) -> Bool {
         validators.contains { $0.supports(scheme) }
     }
 
+    /// Validate `auth` against the first wrapped validator that supports its scheme.
     public func validate(
         auth: AuthBlock,
         challenge nonce: String?

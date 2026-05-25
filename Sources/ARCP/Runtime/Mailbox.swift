@@ -6,8 +6,14 @@
 /// Producers call `put`; consumers call `next()`. When the producer side is
 /// done it calls `finish()`; subsequent `next()` calls return `nil` once the
 /// buffer is drained.
+///
+/// The buffer uses a head index with periodic compaction so draining N
+/// envelopes is O(N) total rather than O(N²). `Array.removeFirst()` shifts
+/// the remaining elements, which made bursty resume / subscription replay
+/// quadratic.
 actor Mailbox<Element: Sendable> {
     private var buffer: [Element] = []
+    private var head: Int = 0
     private var waiter: CheckedContinuation<Element?, Never>?
     private var closed = false
 
@@ -33,10 +39,25 @@ actor Mailbox<Element: Sendable> {
     /// the buffer is empty. Multiple concurrent waiters are not supported —
     /// the mailbox is single-consumer.
     func next() async -> Element? {
-        if !buffer.isEmpty { return buffer.removeFirst() }
+        if head < buffer.count {
+            let value = buffer[head]
+            head += 1
+            compactIfNeeded()
+            return value
+        }
         if closed { return nil }
         return await withCheckedContinuation { (cont: CheckedContinuation<Element?, Never>) in
             self.waiter = cont
+        }
+    }
+
+    private func compactIfNeeded() {
+        // Compact when the dead prefix is at least half of the array AND not
+        // tiny. This keeps amortized work O(1) per element while bounding the
+        // wasted prefix to roughly the live tail.
+        if head >= 64 && head >= buffer.count / 2 {
+            buffer.removeFirst(head)
+            head = 0
         }
     }
 }

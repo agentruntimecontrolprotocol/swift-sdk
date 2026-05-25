@@ -47,6 +47,12 @@ public actor LeaseManager {
         costBudget: CostBudget? = nil,
         modelUse: ModelUse? = nil
     ) async throws -> LeaseId {
+        guard seconds > 0 else {
+            throw ARCPError.invalidArgument(
+                field: "lease_seconds",
+                detail: "lease duration must be positive, got \(seconds)"
+            )
+        }
         let leaseId = LeaseId.random()
         let expiresAt = Date(timeIntervalSinceNow: TimeInterval(seconds))
         leases[leaseId] = LeaseRecord(
@@ -80,6 +86,12 @@ public actor LeaseManager {
 
     /// Refresh a lease, extending it by `seconds`. RFC §15.5.
     public func refresh(leaseId: LeaseId, seconds: Int) async throws {
+        guard seconds > 0 else {
+            throw ARCPError.invalidArgument(
+                field: "requested_seconds",
+                detail: "lease refresh duration must be positive, got \(seconds)"
+            )
+        }
         guard var record = leases[leaseId] else {
             throw ARCPError.notFound(kind: "lease", id: leaseId.rawValue)
         }

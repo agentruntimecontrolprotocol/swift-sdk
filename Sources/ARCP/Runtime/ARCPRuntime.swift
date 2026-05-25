@@ -67,6 +67,16 @@ public actor ARCPRuntime {
         self.subscriptionManager = SubscriptionManager(eventLog: self.eventLog)
         self.artifactStore = ArtifactStore(eventLog: self.eventLog)
         self.log = Logger(label: "arcp.runtime")
+        // RFC §16.3: artifact retention sweep runs unconditionally so
+        // expired artifacts are removed without callers having to opt in.
+        let store = self.artifactStore
+        Task { await store.startSweep() }
+    }
+
+    /// Stop the runtime's owned background tasks (currently the artifact
+    /// retention sweep). Called by `shutdown()` and on actor deinit.
+    public func stop() async {
+        await artifactStore.stopSweep()
     }
 
     /// Snapshot of currently-open session metadata.
@@ -77,7 +87,8 @@ public actor ARCPRuntime {
     /// Register a tool handler globally. Future sessions inherit it.
     public func register(_ handler: any ToolHandler) {
         registeredHandlers.append(handler)
-        for manager in jobManagers.values {
+        let managers = jobManagers
+        for manager in managers.values {
             Task { await manager.register(handler) }
         }
     }
@@ -106,19 +117,27 @@ public actor ARCPRuntime {
                     sessionId: info.sessionId
                 )
             },
+            eventLog: eventLog,
+            principalSubject: info.principal.subject,
             send: { [weak self] envelope in
                 guard let self else { return }
                 try await self.send(envelope, transport: transport)
             }
         )
+        // Insert into jobManagers BEFORE iterating registeredHandlers so a
+        // concurrent `register(_:)` either sees the new entry and fans the
+        // handler out itself, or our subsequent iteration picks up the newly
+        // appended handler. `JobManager.register` is idempotent by name, so
+        // double-registration in the overlap window is safe.
+        jobManagers[info.sessionId] = jobManager
         for handler in registeredHandlers {
             await jobManager.register(handler)
         }
         await jobManager.setAgentInventory(supportedCapabilities.agents)
-        jobManagers[info.sessionId] = jobManager
         log.info("session opened", metadata: ["session": "\(info.sessionId)"])
         await dispatchLoop(transport: transport, mailbox: mailbox, info: info, jobManager: jobManager)
         await jobManager.shutdown()
+        await subscriptionManager.removeAllOwned(by: info.sessionId, reason: "session closed")
         jobManagers.removeValue(forKey: info.sessionId)
         sessions.removeValue(forKey: info.sessionId)
         log.info("session closed", metadata: ["session": "\(info.sessionId)"])
@@ -308,7 +327,9 @@ public actor ARCPRuntime {
             await jobManager.handleLeaseRefresh(envelope: envelope, payload: payload)
             return false
         case .subscribe(let payload):
-            try await handleSubscribe(envelope: envelope, payload: payload, transport: transport)
+            try await handleSubscribe(
+                envelope: envelope, payload: payload, info: info, transport: transport
+            )
             return false
         case .unsubscribe(let payload):
             await subscriptionManager.unsubscribe(payload.subscriptionId)
@@ -361,18 +382,23 @@ public actor ARCPRuntime {
     private func handleSubscribe(
         envelope: Envelope,
         payload: SubscribePayload,
+        info: SessionInfo,
         transport: any Transport
     ) async throws {
         let subscriptionId = SubscriptionId.random()
-        let send: @Sendable (Envelope) async throws -> Void = { [weak self] env in
-            guard let self else { return }
-            try await self.send(env, transport: transport)
+        // Deliveries to the subscriber must NOT be re-routed through
+        // SubscriptionManager, or an empty-filter subscriber will see its own
+        // wrapped delivery cascade through itself. Write straight to the
+        // owning transport instead.
+        let deliver: @Sendable (Envelope) async throws -> Void = { env in
+            try await transport.send(env)
         }
         await subscriptionManager.subscribe(
             subscriptionId: subscriptionId,
+            ownerSessionId: info.sessionId,
             filter: payload.filter,
             since: payload.since,
-            send: send
+            send: deliver
         )
         try await transport.send(
             Envelope(

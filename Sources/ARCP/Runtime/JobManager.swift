@@ -16,6 +16,11 @@ public actor JobManager {
     private let rawSend: @Sendable (Envelope) async throws -> Void
     private var handlers: [String: any ToolHandler] = [:]
     private var jobs: [JobId: JobRecord] = [:]
+    private let eventLog: EventLog?
+    private let principalSubject: String?
+    /// Tracks idempotency keys for in-flight jobs so the terminal envelope can
+    /// be persisted on completion.
+    private var idempotencyByJob: [JobId: IdempotencyKey] = [:]
     /// Optional advertised agent inventory (ARCP v1.1 §7.5). When set, the
     /// runtime validates `agent@version` references on `tool.invoke` against
     /// it and surfaces `agentVersionNotAvailable` for unknown pins.
@@ -44,6 +49,8 @@ public actor JobManager {
         heartbeatInterval: TimeInterval = 30,
         cancelDeadline: TimeInterval = 5,
         credentialManager: CredentialManager? = nil,
+        eventLog: EventLog? = nil,
+        principalSubject: String? = nil,
         send: @escaping @Sendable (Envelope) async throws -> Void
     ) {
         self.sessionId = sessionId
@@ -53,7 +60,14 @@ public actor JobManager {
         self.streamManager = StreamManager(sessionId: sessionId, send: send)
         self.leaseManager = LeaseManager(sessionId: sessionId, send: send)
         self.credentialManager = credentialManager
+        self.eventLog = eventLog
+        self.principalSubject = principalSubject
         self.log = Logger(label: "arcp.jobs.\(sessionId)")
+        // Start the lease expiry sweep automatically (RFC §15.5). Without
+        // this, expired permission leases would not be revoked until a
+        // caller manually reached into the subsystem and started the sweep.
+        let manager = self.leaseManager
+        Task { await manager.startSweep() }
     }
 
     /// Register a handler for a named tool. Replaces a previous registration.
@@ -74,6 +88,29 @@ public actor JobManager {
 
     /// Handle a `tool.invoke` envelope. Spawns a child Task to run the handler.
     public func handleToolInvoke(envelope: Envelope, payload: ToolInvokePayload) async throws {
+        if let trace = Self.traceContext(from: envelope) {
+            try await Tracing.$current.withValue(trace) {
+                try await self.handleToolInvokeInner(envelope: envelope, payload: payload)
+            }
+        } else {
+            try await handleToolInvokeInner(envelope: envelope, payload: payload)
+        }
+    }
+
+    private static func traceContext(from envelope: Envelope) -> TraceContext? {
+        guard let traceId = envelope.traceId, let spanId = envelope.spanId else { return nil }
+        return TraceContext(traceId: traceId, spanId: spanId, parentSpanId: envelope.parentSpanId)
+    }
+
+    private func handleToolInvokeInner(envelope: Envelope, payload: ToolInvokePayload) async throws {
+        // §6.4: when the invoke carries an idempotency key and we have a
+        // cached terminal response for the same (principal, key), re-emit it
+        // correlated to the new invoke id without re-executing the handler.
+        if let key = envelope.idempotencyKey,
+            try await replayCachedIdempotency(key: key, invokeId: envelope.id)
+        {
+            return
+        }
         // Parse the tool/agent identifier per ARCP v1.1 §7.5. Bare names and
         // `name@version` are both accepted; an unparseable identifier falls
         // through to a notFound error.
@@ -226,14 +263,30 @@ public actor JobManager {
             invokeCorrelationId: envelope.id
         )
 
+        if let key = envelope.idempotencyKey {
+            idempotencyByJob[jobId] = key
+        }
+        let inboundTrace = Self.traceContext(from: envelope)
         let runTask = Task { [weak self] in
-            await self?.runJob(
-                jobId: jobId,
-                invokeId: envelope.id,
-                handler: handler,
-                invocation: invocation,
-                context: context
-            )
+            if let inboundTrace {
+                await Tracing.$current.withValue(inboundTrace) {
+                    await self?.runJob(
+                        jobId: jobId,
+                        invokeId: envelope.id,
+                        handler: handler,
+                        invocation: invocation,
+                        context: context
+                    )
+                }
+            } else {
+                await self?.runJob(
+                    jobId: jobId,
+                    invokeId: envelope.id,
+                    handler: handler,
+                    invocation: invocation,
+                    context: context
+                )
+            }
             return ()
         }
         let heartbeatTask = Task { [weak self] in
@@ -345,7 +398,28 @@ public actor JobManager {
     }
 
     public func handleLeaseRefresh(envelope: Envelope, payload: LeaseRefreshPayload) async {
-        try? await leaseManager.refresh(leaseId: payload.leaseId, seconds: payload.requestedSeconds)
+        do {
+            try await leaseManager.refresh(
+                leaseId: payload.leaseId, seconds: payload.requestedSeconds
+            )
+        } catch let error as ARCPError {
+            try? await send(
+                Envelope(
+                    sessionId: sessionId,
+                    correlationId: envelope.id,
+                    payload: .nack(NackPayload(error: error.toEnvelope()))
+                )
+            )
+        } catch {
+            let wrapped = ARCPError.internal(detail: "lease refresh failed: \(error)", cause: nil)
+            try? await send(
+                Envelope(
+                    sessionId: sessionId,
+                    correlationId: envelope.id,
+                    payload: .nack(NackPayload(error: wrapped.toEnvelope()))
+                )
+            )
+        }
     }
 
     /// Send a permission challenge and await grant/deny.
@@ -437,67 +511,133 @@ public actor JobManager {
             )
         )
 
+        let terminal: MessageType
+        let terminalState: JobState
         do {
             let result = try await handler.execute(invocation: invocation, context: context)
             try Task.checkCancellation()
             let completedPayload = try toCompleted(jobId: jobId, result)
-            try? await send(
-                Envelope(
-                    sessionId: sessionId,
-                    jobId: jobId,
-                    correlationId: invokeId,
-                    payload: .jobCompleted(completedPayload)
-                )
-            )
-            transition(jobId: jobId, to: .completed)
+            terminal = .jobCompleted(completedPayload)
+            terminalState = .completed
         } catch let error as ARCPError where error.code == .cancelled {
-            try? await send(
-                Envelope(
-                    sessionId: sessionId,
-                    jobId: jobId,
-                    correlationId: invokeId,
-                    payload: .jobCancelled(
-                        JobCancelledPayload(reason: error.message, code: .cancelled)
-                    )
-                )
-            )
-            transition(jobId: jobId, to: .cancelled)
+            terminal = .jobCancelled(JobCancelledPayload(reason: error.message, code: .cancelled))
+            terminalState = .cancelled
         } catch is CancellationError {
-            try? await send(
-                Envelope(
-                    sessionId: sessionId,
-                    jobId: jobId,
-                    correlationId: invokeId,
-                    payload: .jobCancelled(
-                        JobCancelledPayload(reason: "task cancelled", code: .cancelled)
-                    )
-                )
-            )
-            transition(jobId: jobId, to: .cancelled)
+            terminal = .jobCancelled(JobCancelledPayload(reason: "task cancelled", code: .cancelled))
+            terminalState = .cancelled
         } catch let error as ARCPError {
-            try? await send(
-                Envelope(
-                    sessionId: sessionId,
-                    jobId: jobId,
-                    correlationId: invokeId,
-                    payload: .jobFailed(JobFailedPayload(error: error.toEnvelope()))
-                )
-            )
-            transition(jobId: jobId, to: .failed)
+            terminal = .jobFailed(JobFailedPayload(error: error.toEnvelope()))
+            terminalState = .failed
         } catch {
             let wrapped = ARCPError.internal(detail: "\(error)", cause: error)
-            try? await send(
-                Envelope(
-                    sessionId: sessionId,
-                    jobId: jobId,
-                    correlationId: invokeId,
-                    payload: .jobFailed(JobFailedPayload(error: wrapped.toEnvelope()))
-                )
-            )
-            transition(jobId: jobId, to: .failed)
+            terminal = .jobFailed(JobFailedPayload(error: wrapped.toEnvelope()))
+            terminalState = .failed
         }
+        // Persist idempotency BEFORE emitting the terminal envelope so any
+        // racing duplicate invocation sees the cached response.
+        await persistIdempotencyIfNeeded(jobId: jobId, terminal: terminal)
+        try? await send(
+            Envelope(
+                sessionId: sessionId,
+                jobId: jobId,
+                correlationId: invokeId,
+                payload: terminal
+            )
+        )
+        transition(jobId: jobId, to: terminalState)
         if let record = jobs[jobId] { record.heartbeatTask?.cancel() }
         await credentialManager?.revokeAll(jobId: jobId)
+    }
+
+    /// If `jobId` carries a tracked idempotency key, persist the terminal
+    /// `MessageType` for future lookups by the same (principal, key).
+    private func persistIdempotencyIfNeeded(jobId: JobId, terminal: MessageType) async {
+        guard let key = idempotencyByJob.removeValue(forKey: jobId),
+            let eventLog,
+            let principal = principalSubject
+        else { return }
+        guard let payloadValue = Self.encodePayloadBody(terminal) else { return }
+        let cached: JSONValue = .object([
+            "job_id": .string(jobId.rawValue),
+            "type": .string(terminal.typeName),
+            "payload": payloadValue,
+        ])
+        let expiresAt = Date(timeIntervalSinceNow: 24 * 60 * 60)
+        try? await eventLog.recordIdempotency(
+            principal: principal,
+            key: key,
+            response: cached,
+            expiresAt: expiresAt
+        )
+    }
+
+    /// Replay a cached idempotency response for `key`. Returns `true` when a
+    /// hit was found and emitted, `false` otherwise (caller should proceed
+    /// with normal handling).
+    private func replayCachedIdempotency(
+        key: IdempotencyKey,
+        invokeId: MessageId
+    ) async throws -> Bool {
+        guard let eventLog, let principal = principalSubject else { return false }
+        guard let cached = try await eventLog.lookupIdempotency(principal: principal, key: key)
+        else { return false }
+        guard case .object(let dict) = cached,
+            case .string(let jobIdValue) = dict["job_id"] ?? .null,
+            case .string(let typeName) = dict["type"] ?? .null,
+            let payloadValue = dict["payload"],
+            let terminal = Self.decodePayloadBody(typeName: typeName, payload: payloadValue)
+        else {
+            // Cached response present but malformed — treat as miss.
+            return false
+        }
+        let jobId = JobId(jobIdValue)
+        try? await send(
+            Envelope(
+                sessionId: sessionId,
+                jobId: jobId,
+                correlationId: invokeId,
+                payload: .jobAccepted(JobAcceptedPayload(jobId: jobId, credentials: nil))
+            )
+        )
+        try? await send(
+            Envelope(
+                sessionId: sessionId,
+                jobId: jobId,
+                correlationId: invokeId,
+                payload: terminal
+            )
+        )
+        return true
+    }
+
+    /// Encode a `MessageType` payload body as JSON (just the payload object —
+    /// the `type` discriminant is stored separately).
+    private static func encodePayloadBody(_ payload: MessageType) -> JSONValue? {
+        let envelope = Envelope(payload: payload)
+        guard let data = try? envelope.toJSON(),
+            let value = try? Envelope.makeDecoder().decode(JSONValue.self, from: data),
+            case .object(let dict) = value
+        else { return nil }
+        return dict["payload"]
+    }
+
+    /// Decode a payload body previously written with `encodePayloadBody`,
+    /// using `typeName` as the dispatch discriminant.
+    private static func decodePayloadBody(
+        typeName: String,
+        payload: JSONValue
+    ) -> MessageType? {
+        let synthetic: JSONValue = .object([
+            "arcp": .string("1.1"),
+            "id": .string("idempotency_replay"),
+            "type": .string(typeName),
+            "timestamp": .string(ISO8601DateFormatter().string(from: Date())),
+            "payload": payload,
+        ])
+        guard let data = try? Envelope.makeEncoder().encode(synthetic),
+            let envelope = try? Envelope.makeDecoder().decode(Envelope.self, from: data)
+        else { return nil }
+        return envelope.payload
     }
 
     private func transition(jobId: JobId, to state: JobState) {

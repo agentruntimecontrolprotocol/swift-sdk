@@ -19,12 +19,19 @@ public protocol ToolHandler: Sendable {
 
 /// Inputs handed to a `ToolHandler`.
 public struct ToolInvocation: Sendable {
+    /// Job assigned to this invocation by the runtime.
     public let jobId: JobId
+    /// Session that hosts the invocation.
     public let sessionId: SessionId
+    /// Tool arguments as decoded from the inbound `tool.invoke` envelope.
     public let arguments: JSONValue
+    /// Optional idempotency key — duplicate invokes with the same key replay
+    /// the cached terminal response instead of re-executing the handler.
     public let idempotencyKey: IdempotencyKey?
+    /// Inbound trace id (if any) for cross-runtime distributed tracing.
     public let traceId: TraceId?
 
+    /// Create an invocation. Normally only the runtime constructs these.
     public init(
         jobId: JobId,
         sessionId: SessionId,
@@ -46,8 +53,11 @@ public struct ToolInvocation: Sendable {
 /// `job.completed` carries `resultId` / `resultSize` / `summary`
 /// markers instead of an inline value.
 public enum ToolOutput: Sendable {
+    /// Inline JSON value returned to the caller.
     case value(JSONValue)
+    /// Reference to a stored artifact instead of an inline value.
     case ref(ArtifactRef)
+    /// No result body — the job succeeded without producing data.
     case empty
     /// Result was streamed as `job.result_chunk` events; the terminal
     /// `job.completed` envelope references the same `resultId`.
