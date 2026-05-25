@@ -76,7 +76,7 @@ jobs:
         run: swift run swift-format lint --recursive --strict Sources Tests
 
       - name: Build
-        run: swift build --build-tests
+        run: swift build --build-tests --enable-code-coverage
 
       - name: Test (with code coverage)
         run: swift test --skip-build --enable-code-coverage
