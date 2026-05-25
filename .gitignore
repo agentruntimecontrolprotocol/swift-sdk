@@ -11,6 +11,7 @@ DerivedData/
 *.profdata
 .coverage/
 coverage/
+*.lcov
 docs.doccarchive/
 .docc-build/
 .swiftconform/
