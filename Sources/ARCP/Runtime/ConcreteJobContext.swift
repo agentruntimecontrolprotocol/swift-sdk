@@ -56,13 +56,22 @@ struct ConcreteJobContext: JobContext, Sendable {
             throw ARCPError.failedPrecondition(detail: "credential provisioner is not configured")
         }
         let credential = try await credentialManager.rotate(jobId: jobId, credentialId: id)
-        try await log(
-            level: .info,
-            message: "credential rotated",
-            attributes: [
-                "phase": .string("credential_rotated"),
-                "credential_id": .string(id),
-            ]
+        // §9.8.2: emit a `status` event with phase "credential_rotated" (not a
+        // `log` event). The new value rides to the owning transport only; the
+        // runtime redacts it from the event log and subscriber fan-out (§14).
+        try await sendEnvelope(
+            Envelope(
+                sessionId: sessionId,
+                jobId: jobId,
+                payload: .jobStatus(
+                    JobStatusPayload(
+                        phase: "credential_rotated",
+                        message: "credential rotated",
+                        credentialId: id,
+                        credentialValue: credential.value
+                    )
+                )
+            )
         )
         return credential
     }

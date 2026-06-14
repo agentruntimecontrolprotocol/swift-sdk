@@ -59,7 +59,7 @@ struct ProvisionedCredentialsTests {
         #expect(await provisioner.revoked.count == 1)
     }
 
-    @Test("rotation emits log and revokes prior value")
+    @Test("rotation emits a status event (phase credential_rotated) and revokes prior value")
     func rotation() async throws {
         let provisioner = InMemoryCredentialProvisioner()
         let fixture = try await IntegrationFixture(
@@ -74,16 +74,49 @@ struct ProvisionedCredentialsTests {
             arguments: .null,
             costBudget: .from(["USD": 1])
         )
-        let log = try await fixture.next {
-            if case .log(let payload) = $0.payload {
-                return payload.attributes?["phase"] == .string("credential_rotated")
+        let status = try await fixture.next {
+            if case .jobStatus(let payload) = $0.payload {
+                return payload.phase == "credential_rotated"
             }
             return false
         }
-        guard case .log(let payload) = log.payload else { return }
-        #expect(payload.attributes?["credential_id"] != nil)
+        guard case .jobStatus(let payload) = status.payload else { return }
+        #expect(payload.credentialId != nil)
+        // The owning transport receives the new value (§9.8.2).
+        #expect(payload.credentialValue != nil)
         _ = try await invoked
         try await waitUntil { await provisioner.revoked.contains { $0.contains("_0") } }
+    }
+
+    @Test("credential value is redacted from the event log (§14)")
+    func credentialRedactedFromLog() async throws {
+        let provisioner = InMemoryCredentialProvisioner()
+        let fixture = try await IntegrationFixture(
+            handler: CredentialNoopTool(),
+            capabilities: Capabilities(provisionedCredentials: true),
+            credentialProvisioner: provisioner
+        ).open(capabilities: Capabilities(provisionedCredentials: true))
+        defer { fixture.close() }
+
+        let result = try await fixture.client.invoke(
+            tool: "noop",
+            arguments: .null,
+            costBudget: .from(["USD": 1])
+        )
+        guard case .completed = result.outcome else {
+            Issue.record("expected completed, got \(String(describing: result.outcome))")
+            return
+        }
+        // Replay the persisted event log: the job.accepted MUST NOT carry
+        // credentials (value never persisted, never re-transmitted).
+        let replayed = try await fixture.runtime.eventLog.replay(
+            sessionId: fixture.client.info.sessionId
+        )
+        for envelope in replayed {
+            if case .jobAccepted(let payload) = envelope.payload {
+                #expect(payload.credentials == nil)
+            }
+        }
     }
 
     @Test("constructing runtime with provisioned_credentials but no provisioner throws")

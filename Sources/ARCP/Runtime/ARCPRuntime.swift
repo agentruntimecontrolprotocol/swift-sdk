@@ -149,9 +149,39 @@ public actor ARCPRuntime {
     }
 
     private func send(_ envelope: Envelope, transport: any Transport) async throws {
+        // §9.8.2 / §14: provisioned credential `value`s go to the owning
+        // transport only. They MUST NOT be persisted in the event log or
+        // routed to subscribers, so a redacted copy is used for both.
         try await transport.send(envelope)
-        try? await persistOptional(envelope, sessionId: envelope.sessionId)
-        await subscriptionManager.route(envelope: envelope)
+        let redacted = Self.redactingCredentials(envelope)
+        try? await persistOptional(redacted, sessionId: redacted.sessionId)
+        await subscriptionManager.route(envelope: redacted)
+    }
+
+    /// Return a copy of `envelope` with provisioned credential material
+    /// stripped: the `credentials` array on `job.accepted` and the
+    /// `credential_value` on a `job.status` (`credential_rotated`) event.
+    /// All other envelopes are returned unchanged.
+    static func redactingCredentials(_ envelope: Envelope) -> Envelope {
+        switch envelope.payload {
+        case .jobAccepted(let payload) where payload.credentials != nil:
+            var copy = envelope
+            copy.payload = .jobAccepted(JobAcceptedPayload(jobId: payload.jobId, credentials: nil))
+            return copy
+        case .jobStatus(let payload) where payload.credentialValue != nil:
+            var copy = envelope
+            copy.payload = .jobStatus(
+                JobStatusPayload(
+                    phase: payload.phase,
+                    message: payload.message,
+                    credentialId: payload.credentialId,
+                    credentialValue: nil
+                )
+            )
+            return copy
+        default:
+            return envelope
+        }
     }
 
     private func runHandshake(
@@ -506,7 +536,10 @@ public actor ARCPRuntime {
             after: payload.afterMessageId
         )
         for replayed in envelopes {
-            try await transport.send(replayed)
+            // §9.8.2: never re-transmit credential material on resume. The
+            // event log is already redacted, but redact defensively in case an
+            // older log retained credentials.
+            try await transport.send(Self.redactingCredentials(replayed))
         }
         try await transport.send(
             Envelope(

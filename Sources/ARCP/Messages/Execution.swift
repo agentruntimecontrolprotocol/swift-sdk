@@ -355,6 +355,42 @@ public struct JobResultChunkPayload: Sendable, Codable, Hashable {
     }
 }
 
+/// `job.status` event payload (ARCP v1.1 §8.2 `status` kind).
+///
+/// Body shape is `{ phase, message? }`. For credential rotation (§9.8.2)
+/// the runtime emits `phase: "credential_rotated"` with the credential
+/// `id`. The new credential `value` is delivered to the owning transport
+/// only and is redacted from the event log and subscriber fan-out (§14);
+/// see `ARCPRuntime.redactingCredentials`.
+public struct JobStatusPayload: Sendable, Codable, Hashable {
+    public var phase: String
+    public var message: String?
+    /// Identifier of the credential this status refers to, when applicable.
+    public var credentialId: String?
+    /// New credential value for `credential_rotated` (owner-transport only;
+    /// redacted before persistence and subscriber routing).
+    public var credentialValue: String?
+
+    public init(
+        phase: String,
+        message: String? = nil,
+        credentialId: String? = nil,
+        credentialValue: String? = nil
+    ) {
+        self.phase = phase
+        self.message = message
+        self.credentialId = credentialId
+        self.credentialValue = credentialValue
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case phase
+        case message
+        case credentialId = "credential_id"
+        case credentialValue = "credential_value"
+    }
+}
+
 /// `job.failed` payload. RFC §10.2 / §18.1.
 public struct JobFailedPayload: Sendable, Codable, Hashable {
     public var error: ErrorEnvelope

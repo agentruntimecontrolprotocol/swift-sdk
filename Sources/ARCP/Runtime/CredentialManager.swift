@@ -1,4 +1,5 @@
 import Foundation
+import Logging
 
 public protocol CredentialRetention: Sendable {
     func persistOutstanding(_ ids: [String], jobId: JobId) async throws
@@ -26,6 +27,7 @@ public actor CredentialManager {
     private var credentialsByJob: [JobId: [ProvisionedCredential]] = [:]
     private var leaseByJob: [JobId: LeaseSnapshot] = [:]
     private let sessionId: SessionId
+    private let log: Logger
 
     public init(
         provisioner: any CredentialProvisioner,
@@ -35,6 +37,7 @@ public actor CredentialManager {
         self.provisioner = provisioner
         self.retention = retention
         self.sessionId = sessionId
+        self.log = Logger(label: "arcp.credentials.\(sessionId)")
     }
 
     public var outstandingCredentialIds: [String] {
@@ -57,7 +60,7 @@ public actor CredentialManager {
         let credentials = credentialsByJob.removeValue(forKey: jobId) ?? []
         leaseByJob.removeValue(forKey: jobId)
         for credential in credentials {
-            await revokeWithRetry(credential.id)
+            await revokeWithRetry(credential.id, jobId: jobId)
         }
         try? await retention.persistOutstanding([], jobId: jobId)
     }
@@ -93,7 +96,7 @@ public actor CredentialManager {
         }
         var existing = credentialsByJob[jobId] ?? []
         if existing.contains(where: { $0.id == credentialId }) {
-            await revokeWithRetry(credentialId)
+            await revokeWithRetry(credentialId, jobId: jobId)
             existing.removeAll { $0.id == credentialId }
         }
         existing.append(contentsOf: next)
@@ -103,18 +106,31 @@ public actor CredentialManager {
         return replacement
     }
 
-    private func revokeWithRetry(_ credentialId: String) async {
+    private func revokeWithRetry(_ credentialId: String, jobId: JobId) async {
         var delay: UInt64 = 100_000_000
+        var lastError: (any Error)?
         for attempt in 0..<3 {
             do {
                 try await provisioner.revoke(credentialId: credentialId)
                 return
-            } catch  where attempt < 2 {
-                try? await Task.sleep(nanoseconds: delay)
-                delay *= 2
             } catch {
-                return
+                lastError = error
+                if attempt < 2 {
+                    try? await Task.sleep(nanoseconds: delay)
+                    delay *= 2
+                }
             }
         }
+        // §9.8.2 / §14: revocation is best-effort, but a permanent failure
+        // MUST be logged so operators can surface the dangling spend authority.
+        log.error(
+            "credential revocation failed permanently after retries",
+            metadata: [
+                "credential_id": "\(credentialId)",
+                "job_id": "\(jobId.rawValue)",
+                "session": "\(sessionId)",
+                "error": "\(String(describing: lastError))",
+            ]
+        )
     }
 }

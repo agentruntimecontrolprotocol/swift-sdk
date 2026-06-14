@@ -34,12 +34,13 @@ struct IntegrationFixture: Sendable {
             client: IdentityBlock(kind: "test-client", version: "1"),
             capabilities: clientCapabilities ?? capabilities
         )
-        return OpenFixture(client: client, serverTask: serverTask)
+        return OpenFixture(client: client, runtime: runtime, serverTask: serverTask)
     }
 }
 
 struct OpenFixture: Sendable {
     let client: ARCPClient
+    let runtime: ARCPRuntime
     let serverTask: Task<SessionInfo, any Error>
 
     func close() {

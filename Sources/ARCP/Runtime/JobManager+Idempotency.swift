@@ -44,6 +44,12 @@ extension JobManager {
             return false
         }
         let jobId = JobId(jobIdValue)
+        // §7.2 / §9.8.2: the replayed job.accepted matches the original's
+        // non-secret fields (same job_id). Credentials are deliberately nil:
+        // the original credentials were revoked when the job terminated
+        // (§9.8.2) and are never persisted (§14), so they cannot — and must
+        // not — be re-emitted on replay. This is the defined, tested behavior
+        // for credential-bearing idempotent replays.
         try? await send(
             Envelope(
                 sessionId: sessionId,
