@@ -326,7 +326,40 @@ public actor JobManager {
         var newRecord = record
         newRecord.runTask = runTask
         newRecord.heartbeatTask = heartbeatTask
+        // §7.1 / §7.3: enforce max_runtime_sec with a per-job deadline task
+        // that terminates the job with TIMEOUT / timed_out when exceeded.
+        if let maxRuntimeSec = payload.maxRuntimeSec, maxRuntimeSec > 0 {
+            let invokeId = envelope.id
+            newRecord.timeoutTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(maxRuntimeSec))
+                await self?.enforceRuntimeDeadline(
+                    jobId: jobId, invokeId: invokeId, maxRuntimeSec: maxRuntimeSec)
+            }
+        }
         jobs[jobId] = newRecord
+    }
+
+    /// Terminate `jobId` with TIMEOUT / timed_out when its `max_runtime_sec`
+    /// deadline elapses while the job is still running (ARCP v1.1 §7.3).
+    private func enforceRuntimeDeadline(
+        jobId: JobId, invokeId: MessageId, maxRuntimeSec: Int
+    ) async {
+        guard let record = jobs[jobId], !record.state.isTerminal else { return }
+        record.runTask?.cancel()
+        let error = ARCPError.timeout(jobId: jobId, maxRuntimeSec: maxRuntimeSec)
+        let terminal = MessageType.jobFailed(JobFailedPayload(error: error.toEnvelope()))
+        await persistIdempotencyIfNeeded(jobId: jobId, terminal: terminal)
+        try? await send(
+            Envelope(
+                sessionId: sessionId,
+                jobId: jobId,
+                correlationId: invokeId,
+                payload: terminal
+            )
+        )
+        transition(jobId: jobId, to: .timedOut)
+        record.heartbeatTask?.cancel()
+        await credentialManager?.revokeAll(jobId: jobId)
     }
 
     /// Handle a `cancel` request (RFC §10.4). Cooperative — the handler must
@@ -550,6 +583,7 @@ public actor JobManager {
             record.runTask?.cancel()
             record.heartbeatTask?.cancel()
             record.cancelEscalationTask?.cancel()
+            record.timeoutTask?.cancel()
             jobs[jobId]?.state = .cancelled
             await credentialManager?.revokeAll(jobId: jobId)
         }
@@ -621,6 +655,9 @@ public actor JobManager {
             terminal = .jobFailed(JobFailedPayload(error: wrapped.toEnvelope()))
             terminalState = .failed
         }
+        // If the job was already terminated out-of-band (e.g. the runtime
+        // deadline fired TIMEOUT), do not emit a second terminal.
+        if jobs[jobId]?.state.isTerminal == true { return }
         // Persist idempotency BEFORE emitting the terminal envelope so any
         // racing duplicate invocation sees the cached response.
         await persistIdempotencyIfNeeded(jobId: jobId, terminal: terminal)
@@ -642,9 +679,11 @@ public actor JobManager {
             record.state = state
             // Once the job is terminal there is nothing left to escalate, so
             // release the cancel-deadline task instead of letting it sleep out.
-            if state.isTerminal, let escalation = record.cancelEscalationTask {
-                escalation.cancel()
+            if state.isTerminal {
+                record.cancelEscalationTask?.cancel()
                 record.cancelEscalationTask = nil
+                record.timeoutTask?.cancel()
+                record.timeoutTask = nil
             }
             jobs[jobId] = record
         }
@@ -736,6 +775,7 @@ public actor JobManager {
         var runTask: Task<Void, Never>?
         var heartbeatTask: Task<Void, Never>?
         var cancelEscalationTask: Task<Void, Never>?
+        var timeoutTask: Task<Void, Never>?
         var leaseExpiresAt: Date?
         var costBudget: CostBudget?
         var modelUse: ModelUse?

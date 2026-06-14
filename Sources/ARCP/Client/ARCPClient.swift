@@ -493,6 +493,7 @@ public actor ARCPClient {
         costBudget: CostBudget? = nil,
         modelUse: ModelUse? = nil,
         leaseConstraints: LeaseConstraints? = nil,
+        maxRuntimeSec: Int? = nil,
         idempotencyKey: IdempotencyKey? = nil
     ) async throws -> InvocationResult {
         let invokeId = MessageId.random()
@@ -513,7 +514,8 @@ public actor ARCPClient {
                     arguments: arguments,
                     costBudget: costBudget,
                     modelUse: modelUse,
-                    leaseConstraints: leaseConstraints
+                    leaseConstraints: leaseConstraints,
+                    maxRuntimeSec: maxRuntimeSec
                 )
             )
         )

@@ -100,19 +100,24 @@ public struct ToolInvokePayload: Sendable, Codable, Hashable {
     public var costBudget: CostBudget?
     public var modelUse: ModelUse?
     public var leaseConstraints: LeaseConstraints?
+    /// Maximum wall-clock runtime in seconds (ARCP v1.1 §7.1). When exceeded,
+    /// the runtime terminates the job with `TIMEOUT` / `timed_out` (§7.3).
+    public var maxRuntimeSec: Int?
 
     public init(
         tool: String,
         arguments: JSONValue,
         costBudget: CostBudget? = nil,
         modelUse: ModelUse? = nil,
-        leaseConstraints: LeaseConstraints? = nil
+        leaseConstraints: LeaseConstraints? = nil,
+        maxRuntimeSec: Int? = nil
     ) {
         self.tool = tool
         self.arguments = arguments
         self.costBudget = costBudget
         self.modelUse = modelUse
         self.leaseConstraints = leaseConstraints
+        self.maxRuntimeSec = maxRuntimeSec
     }
 
     enum CodingKeys: String, CodingKey {
@@ -121,6 +126,7 @@ public struct ToolInvokePayload: Sendable, Codable, Hashable {
         case costBudget = "cost_budget"
         case modelUse = "model_use"
         case leaseConstraints = "lease_constraints"
+        case maxRuntimeSec = "max_runtime_sec"
     }
 }
 
@@ -436,10 +442,13 @@ public enum JobState: String, Sendable, Codable, Hashable, CaseIterable {
     case completed
     case failed
     case cancelled
+    /// Terminal state reached when a job exceeds `max_runtime_sec`
+    /// (ARCP v1.1 §7.3).
+    case timedOut = "timed_out"
 
     public var isTerminal: Bool {
         switch self {
-        case .completed, .failed, .cancelled: return true
+        case .completed, .failed, .cancelled, .timedOut: return true
         default: return false
         }
     }
