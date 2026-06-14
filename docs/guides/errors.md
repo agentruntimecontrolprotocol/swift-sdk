@@ -20,23 +20,26 @@ throw ARCPError.deadlineExceeded(operation: "tool.invoke timeout")
 
 ## Error codes
 
-Every `ARCPError` maps to a wire `ErrorCode` (RFC §18.2) via
+Every `ARCPError` maps to a wire `ErrorCode` (ARCP v1.1 §12) via
 `ARCPError.code`:
 
 | `ARCPError` case | Wire code | Retryable by default |
 |------------------|-----------|----------------------|
 | `.cancelled(operation:reason:)` | `CANCELLED` | no |
-| `.invalidArgument(field:detail:)` | `INVALID_ARGUMENT` | no |
+| `.invalidArgument(field:detail:)` | `INVALID_REQUEST` | no |
 | `.deadlineExceeded(operation:)` | `DEADLINE_EXCEEDED` | **yes** |
+| `.timeout(jobId:maxRuntimeSec:)` | `TIMEOUT` | no |
 | `.notFound(kind:id:)` | `NOT_FOUND` | no |
+| `.jobNotFound(id:)` | `JOB_NOT_FOUND` | no |
+| `.duplicateKey(key:detail:)` | `DUPLICATE_KEY` | no |
 | `.alreadyExists(kind:id:)` | `ALREADY_EXISTS` | no |
 | `.permissionDenied(permission:resource:)` | `PERMISSION_DENIED` | no |
 | `.resourceExhausted(reason:retryAfter:)` | `RESOURCE_EXHAUSTED` | **yes** |
 | `.failedPrecondition(detail:)` | `FAILED_PRECONDITION` | no |
 | `.aborted(reason:)` | `ABORTED` | **yes** |
-| `.outOfRange(field:detail:)` | `INVALID_ARGUMENT` | no |
+| `.outOfRange(field:detail:)` | `INVALID_REQUEST` | no |
 | `.unimplemented(section:detail:)` | `UNIMPLEMENTED` | no |
-| `.internal(detail:cause:)` | `INTERNAL` | **yes** |
+| `.internal(detail:cause:)` | `INTERNAL_ERROR` | **yes** |
 | `.unavailable(reason:retryAfter:)` | `UNAVAILABLE` | **yes** |
 | `.dataLoss(detail:)` | `DATA_LOSS` | no |
 | `.unauthenticated(detail:)` | `UNAUTHENTICATED` | no |
@@ -46,15 +49,19 @@ Every `ARCPError` maps to a wire `ErrorCode` (RFC §18.2) via
 | `.leaseSubsetViolation(detail:)` | `LEASE_SUBSET_VIOLATION` | no |
 | `.backpressureOverflow(streamOrSubscription:dropped:)` | `BACKPRESSURE_OVERFLOW` | no |
 | `.budgetExhausted(detail:)` | `BUDGET_EXHAUSTED` | no |
+| `.agentNotAvailable(agent:)` | `AGENT_NOT_AVAILABLE` | no |
 | `.agentVersionNotAvailable(agent:version:)` | `AGENT_VERSION_NOT_AVAILABLE` | no |
+| `.resumeWindowExpired(detail:)` | `RESUME_WINDOW_EXPIRED` | no |
 | `.unknown(message:)` | `UNKNOWN` | no |
 
-`ErrorCode.isRetryableByDefault` follows RFC §18.3.
+`ErrorCode.isRetryableByDefault` follows ARCP v1.1 §12.
 `ARCPError.isRetryable` provides the same answer with the case-specific
 signal applied (e.g. respecting `retryAfter`).
 
-`RATE_LIMITED` is accepted on decode as an alias for
-`RESOURCE_EXHAUSTED`; encoding always uses the canonical name.
+The legacy/gRPC wire strings `INVALID_ARGUMENT`, `INTERNAL`, and
+`RATE_LIMITED` are accepted on decode as aliases for `INVALID_REQUEST`,
+`INTERNAL_ERROR`, and `RESOURCE_EXHAUSTED` respectively; encoding always
+uses the canonical §12 name.
 
 ## Handling errors on the client
 

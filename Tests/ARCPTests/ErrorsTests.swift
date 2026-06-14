@@ -58,6 +58,32 @@ struct ErrorsTests {
         #expect(try decoder.decode(ErrorCode.self, from: agentData) == .agentVersionNotAvailable)
     }
 
+    @Test("§12 taxonomy contains the full code set with canonical wire strings")
+    func section12Taxonomy() throws {
+        #expect(ErrorCode.invalidArgument.rawValue == "INVALID_REQUEST")
+        #expect(ErrorCode.internal.rawValue == "INTERNAL_ERROR")
+        #expect(ErrorCode.timeout.rawValue == "TIMEOUT")
+        #expect(ErrorCode.duplicateKey.rawValue == "DUPLICATE_KEY")
+        #expect(ErrorCode.agentNotAvailable.rawValue == "AGENT_NOT_AVAILABLE")
+        #expect(ErrorCode.jobNotFound.rawValue == "JOB_NOT_FOUND")
+        #expect(ErrorCode.resumeWindowExpired.rawValue == "RESUME_WINDOW_EXPIRED")
+
+        // Legacy/gRPC wire strings still decode to their §12 equivalents.
+        let decoder = Envelope.makeDecoder()
+        #expect(
+            try decoder.decode(ErrorCode.self, from: "\"INVALID_ARGUMENT\"".data(using: .utf8)!)
+                == .invalidArgument)
+        #expect(
+            try decoder.decode(ErrorCode.self, from: "\"INTERNAL\"".data(using: .utf8)!)
+                == .internal)
+
+        #expect(ARCPError.timeout(jobId: JobId("job_x"), maxRuntimeSec: 5).code == .timeout)
+        #expect(ARCPError.jobNotFound(id: "job_x").code == .jobNotFound)
+        #expect(ARCPError.duplicateKey(key: "idem_x", detail: "differs").code == .duplicateKey)
+        #expect(ARCPError.agentNotAvailable(agent: "a").code == .agentNotAvailable)
+        #expect(ARCPError.resumeWindowExpired(detail: "x").code == .resumeWindowExpired)
+    }
+
     @Test("v1.1 ARCPError variants are non-retryable by default")
     func v11RetrySemantics() {
         #expect(ARCPError.budgetExhausted(detail: "USD <= 0").isRetryable == false)

@@ -16,8 +16,26 @@ public enum ARCPError: Error, Sendable {
     /// Operation timed out.
     case deadlineExceeded(operation: String)
 
+    /// Job exceeded its `max_runtime_sec` budget (ARCP v1.1 §7.3 / §12).
+    case timeout(jobId: JobId, maxRuntimeSec: Int)
+
     /// Referenced entity does not exist.
     case notFound(kind: String, id: String)
+
+    /// Referenced `job_id` does not exist or is not visible to the caller
+    /// (ARCP v1.1 §7.4 / §12).
+    case jobNotFound(id: String)
+
+    /// An `idempotency_key` was reused with conflicting parameters
+    /// (ARCP v1.1 §7.2 / §12).
+    case duplicateKey(key: String, detail: String)
+
+    /// The requested `agent` is not registered (ARCP v1.1 §7.5 / §12).
+    case agentNotAvailable(agent: String)
+
+    /// Resume attempted after the buffered event window closed
+    /// (ARCP v1.1 §6.3 / §12).
+    case resumeWindowExpired(detail: String)
 
     /// Entity creation conflicted.
     case alreadyExists(kind: String, id: String)
@@ -86,7 +104,12 @@ extension ARCPError {
         case .cancelled: return .cancelled
         case .invalidArgument, .outOfRange: return .invalidArgument
         case .deadlineExceeded: return .deadlineExceeded
+        case .timeout: return .timeout
         case .notFound: return .notFound
+        case .jobNotFound: return .jobNotFound
+        case .duplicateKey: return .duplicateKey
+        case .agentNotAvailable: return .agentNotAvailable
+        case .resumeWindowExpired: return .resumeWindowExpired
         case .alreadyExists: return .alreadyExists
         case .permissionDenied: return .permissionDenied
         case .resourceExhausted: return .resourceExhausted
@@ -129,8 +152,18 @@ extension ARCPError {
             return "Invalid argument \(field): \(detail)"
         case .deadlineExceeded(let op):
             return "Deadline exceeded for \(op)"
+        case .timeout(let jobId, let maxRuntimeSec):
+            return "Job \(jobId) exceeded max_runtime_sec=\(maxRuntimeSec)"
         case .notFound(let kind, let id):
             return "\(kind) \(id) not found"
+        case .jobNotFound(let id):
+            return "job \(id) not found"
+        case .duplicateKey(let key, let detail):
+            return "Duplicate idempotency_key \(key): \(detail)"
+        case .agentNotAvailable(let agent):
+            return "Agent not available: \(agent)"
+        case .resumeWindowExpired(let detail):
+            return "Resume window expired: \(detail)"
         case .alreadyExists(let kind, let id):
             return "\(kind) \(id) already exists"
         case .permissionDenied(let permission, let resource):
@@ -204,6 +237,17 @@ extension ARCPError {
             return ["field": .string(field)]
         case .notFound(let kind, let id), .alreadyExists(let kind, let id):
             return ["kind": .string(kind), "id": .string(id)]
+        case .jobNotFound(let id):
+            return ["job_id": .string(id)]
+        case .timeout(let jobId, let maxRuntimeSec):
+            return [
+                "job_id": .string(jobId.rawValue),
+                "max_runtime_sec": .int(Int64(maxRuntimeSec)),
+            ]
+        case .duplicateKey(let key, let detail):
+            return ["idempotency_key": .string(key), "detail": .string(detail)]
+        case .agentNotAvailable(let agent):
+            return ["agent": .string(agent)]
         case .unimplemented(let section, _):
             return ["section": .string(section)]
         default:

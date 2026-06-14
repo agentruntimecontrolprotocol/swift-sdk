@@ -152,7 +152,7 @@ public actor JobManager {
                     correlationId: envelope.id,
                     payload: .toolError(
                         ToolErrorPayload(
-                            error: ARCPError.notFound(kind: "tool", id: payload.tool).toEnvelope()
+                            error: ARCPError.agentNotAvailable(agent: payload.tool).toEnvelope()
                         )
                     )
                 )
