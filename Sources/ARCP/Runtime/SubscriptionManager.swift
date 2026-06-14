@@ -1,7 +1,7 @@
 import Foundation
 import Logging
 
-/// Per-runtime subscription registry. RFC §13.
+/// Per-runtime subscription registry. ARCP v1.1 §7.6.
 ///
 /// A subscriber calls `subscribe(...)` (typically forwarded from the dispatch
 /// loop's `subscribe` envelope handler), the manager validates and records

@@ -34,7 +34,7 @@ public enum MessageType: Sendable, Hashable {
     case resume(ResumePayload)
     case backpressure(BackpressurePayload)
 
-    // Execution (RFC §6.2 / §10)
+    // Execution (ARCP v1.1 §7 / §8)
     case toolInvoke(ToolInvokePayload)
     case toolResult(ToolResultPayload)
     case toolError(ToolErrorPayload)
@@ -48,13 +48,13 @@ public enum MessageType: Sendable, Hashable {
     case jobResultChunk(JobResultChunkPayload)
     case jobStatus(JobStatusPayload)
 
-    // Streaming (RFC §11)
+    // Streaming (ARCP v1.1 §8.4)
     case streamOpen(StreamOpenPayload)
     case streamChunk(StreamChunkPayload)
     case streamClose(StreamClosePayload)
     case streamError(StreamErrorPayload)
 
-    // Permissions & Leases (RFC §15)
+    // Permissions & Leases (ARCP v1.1 §9 / §15.4)
     case permissionRequest(PermissionRequestPayload)
     case permissionGrant(PermissionGrantPayload)
     case permissionDeny(PermissionDenyPayload)
@@ -63,20 +63,20 @@ public enum MessageType: Sendable, Hashable {
     case leaseRevoked(LeaseRevokedPayload)
     case leaseRefresh(LeaseRefreshPayload)
 
-    // Subscriptions (RFC §13)
+    // Subscriptions (ARCP v1.1 §7.6)
     case subscribe(SubscribePayload)
     case subscribeAccepted(SubscribeAcceptedPayload)
     case subscribeEvent(SubscribeEventPayload)
     case unsubscribe(UnsubscribePayload)
     case subscribeClosed(SubscribeClosedPayload)
 
-    // Artifacts (RFC §16)
+    // Artifacts (ARCP v1.1 §8.2 artifact_ref)
     case artifactPut(ArtifactPutPayload)
     case artifactFetch(ArtifactFetchPayload)
     case artifactRef(ArtifactRefPayload)
     case artifactRelease(ArtifactReleasePayload)
 
-    // Telemetry (RFC §17)
+    // Telemetry (ARCP v1.1 §8.2 / §11)
     case eventEmit(EventEmitPayload)
     case log(LogPayload)
     case metric(MetricPayload)

@@ -1,10 +1,10 @@
 import Foundation
 
-/// All errors raised by the SDK. RFC §18.
+/// All errors raised by the SDK. ARCP v1.1 §12.
 ///
 /// Public APIs throw `ARCPError`. Downstream library errors are wrapped at the
 /// boundary into `.internal(cause:)` or a more specific case. The `code` and
-/// `isRetryable` computed properties provide RFC-aligned views suitable for
+/// `isRetryable` computed properties provide §12-aligned views suitable for
 /// error envelopes (`tool.error`, `job.failed`, `nack`).
 public enum ARCPError: Error, Sendable {
     /// Operation was cancelled by caller, runtime, or policy.
@@ -98,7 +98,7 @@ public enum ARCPError: Error, Sendable {
 }
 
 extension ARCPError {
-    /// Canonical RFC §18.2 code.
+    /// Canonical ARCP v1.1 §12 code.
     public var code: ErrorCode {
         switch self {
         case .cancelled: return .cancelled
