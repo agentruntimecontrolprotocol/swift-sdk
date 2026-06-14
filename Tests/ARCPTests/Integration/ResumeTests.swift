@@ -19,7 +19,7 @@ struct ResumeTests {
         #expect(replayed.map(\.id) == [MessageId("msg_3"), MessageId("msg_4")])
     }
 
-    @Test("resume from a missing message id throws DATA_LOSS")
+    @Test("resume past the retained window throws RESUME_WINDOW_EXPIRED (§6.3)")
     func resumeMissing() async throws {
         let log = try EventLog.inMemory()
         try await log.append(
@@ -29,11 +29,13 @@ struct ResumeTests {
                 payload: .ack(AckPayload())
             )
         )
-        await #expect(throws: ARCPError.self) {
+        await #expect {
             _ = try await log.replay(
                 sessionId: SessionId("sess_resume2"),
                 after: MessageId("msg_missing")
             )
+        } throws: { error in
+            (error as? ARCPError)?.code == .resumeWindowExpired
         }
     }
 }

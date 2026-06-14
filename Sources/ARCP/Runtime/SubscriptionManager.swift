@@ -151,13 +151,16 @@ public actor SubscriptionManager {
                 after: since.afterMessageId
             )
         } catch {
+            // Surface the underlying ARCP code (e.g. RESUME_WINDOW_EXPIRED per
+            // §6.3) rather than flattening every backfill error to DATA_LOSS.
+            let code = (error as? ARCPError)?.code ?? .dataLoss
             try? await record.send(
                 Envelope(
                     subscriptionId: subscriptionId,
                     payload: .subscribeClosed(
                         SubscribeClosedPayload(
                             subscriptionId: subscriptionId,
-                            code: .dataLoss,
+                            code: code,
                             reason: "\(error)"
                         )
                     )

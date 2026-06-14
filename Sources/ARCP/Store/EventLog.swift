@@ -100,8 +100,13 @@ public actor EventLog {
                     [sessionId.rawValue, after.rawValue]
                 ) as? Int64) ?? -1
             if cutoffSequence == -1 {
-                throw ARCPError.dataLoss(
-                    detail: "after message_id \(after) not present in event log for session \(sessionId)"
+                // §6.3: when the buffer no longer covers the requested point
+                // (evicted or never retained), the runtime returns
+                // RESUME_WINDOW_EXPIRED — not DATA_LOSS — so the client knows
+                // to restart rather than treat it as unrecoverable corruption.
+                throw ARCPError.resumeWindowExpired(
+                    detail:
+                        "after message_id \(after) is outside the retained event window for session \(sessionId)"
                 )
             }
         } else {
