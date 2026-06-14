@@ -7,6 +7,7 @@ import Testing
 struct IdempotencyTests {
     @Test("Second invoke with same idempotency key returns the cached terminal")
     func duplicateInvocationReplays() async throws {
+        await CountingTool.counter.reset()
         let fixture = IntegrationFixture(handler: CountingTool())
         let open = try await fixture.open()
         defer { open.close() }
@@ -91,6 +92,7 @@ private struct CountingTool: ToolHandler {
 
 private actor AtomicCounter {
     private(set) var value: Int = 0
+    func reset() { value = 0 }
     @discardableResult
     func increment() -> Int {
         value += 1

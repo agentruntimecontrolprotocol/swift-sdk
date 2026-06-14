@@ -8,10 +8,10 @@ beginning (RFC §19).
 
 This release implements **same-session event-log replay only**:
 
-- After a transport drop, you must reconnect over a fresh transport.
-  The runtime accepts the resume request on the *new* session and
-  replays from the new session's event log starting after
-  `after_message_id`.
+- After a transport drop, you reconnect over a fresh transport. Resume
+  replay is scoped to the active `session_id` on reconnect and starts
+  after `after_message_id` in that same session's event log — it succeeds
+  only when the original `session_id` survives the reconnect.
 - **Cross-session resume is not implemented** — i.e. you cannot use
   `after_message_id` from a prior session to recover events that the
   prior session emitted. The runtime has no mapping from one session id

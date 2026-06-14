@@ -422,8 +422,13 @@ public actor ARCPClient {
             case .readyError(let err):
                 pendingPongs.removeValue(forKey: id)
                 cont.resume(throwing: err)
-            case .pending, .none:
+            case .pending:
                 pendingPongs[id] = .waiting(cont)
+            case .none:
+                // The slot was cleared (transport closed via finishUnhandled)
+                // between ping()'s `.pending` insert and this attach. Fail
+                // immediately instead of waiting for the ping timeout.
+                cont.resume(throwing: ARCPError.unavailable(reason: "transport closed", retryAfter: nil))
             case .waiting:
                 cont.resume(throwing: ARCPError.internal(detail: "double-attach pong \(id)", cause: nil))
             }

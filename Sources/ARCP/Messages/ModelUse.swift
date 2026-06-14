@@ -34,6 +34,11 @@ public struct ModelUse: Sendable, Codable, Hashable {
     static func patternCovers(parent: String, child: String) -> Bool {
         if parent == "*" { return true }
         if parent == child { return true }
+        // A literal-only parent (no wildcard) cannot cover a wildcard child:
+        // the child expands to strings the literal parent does not match
+        // (e.g. parent "abc" vs child "abc*abc"). Reject to avoid a subset
+        // false positive that would let a capability expand.
+        if !parent.contains("*") && child.contains("*") { return false }
         // If child has no wildcards, defer to literal matching.
         if !child.contains("*") {
             return matches(pattern: parent, value: child)

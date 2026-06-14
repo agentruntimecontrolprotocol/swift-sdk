@@ -22,6 +22,11 @@ public actor PendingRegistry<Response: Sendable> {
     /// Register a waiter for `id` and return its response when it arrives or
     /// `ARCPError.deadlineExceeded` when `deadline` elapses first.
     public func awaitResponse(id: MessageId, deadline: Duration) async throws -> Response {
+        // Reject a duplicate registration so we never overwrite (and orphan)
+        // an existing waiter's continuation for the same id.
+        if slots[id] != nil {
+            throw ARCPError.internal(detail: "duplicate pending response \(id)", cause: nil)
+        }
         slots[id] = .pending
         let timeoutTask = Task { [weak self] in
             try? await Task.sleep(for: deadline)

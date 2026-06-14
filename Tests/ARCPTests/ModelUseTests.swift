@@ -74,4 +74,13 @@ struct ModelUseTests {
         // Child can match openai:gpt-5 which parent cannot match.
         #expect(parent.subsetViolation(of: child) == "openai:gpt-*")
     }
+
+    @Test("subsetViolation rejects a wildcard child under a literal-only parent")
+    func subsetViolationLiteralParentWildcardChild() {
+        // parent "abc" (no wildcard) must NOT cover child "abc*abc": the child
+        // matches e.g. "abcXabc" which the literal parent cannot.
+        let parent = ModelUse(patterns: ["abc"])
+        let child = ModelUse(patterns: ["abc*abc"])
+        #expect(parent.subsetViolation(of: child) == "abc*abc")
+    }
 }
