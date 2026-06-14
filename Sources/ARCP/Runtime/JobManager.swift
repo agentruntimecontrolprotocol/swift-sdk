@@ -16,17 +16,20 @@ public actor JobManager {
     private let rawSend: @Sendable (Envelope) async throws -> Void
     private var handlers: [String: any ToolHandler] = [:]
     private var jobs: [JobId: JobRecord] = [:]
-    private let eventLog: EventLog?
-    private let principalSubject: String?
+    /// Visible to the idempotency extension (`JobManager+Idempotency.swift`).
+    let eventLog: EventLog?
+    /// Visible to the idempotency extension (`JobManager+Idempotency.swift`).
+    let principalSubject: String?
     /// Tracks idempotency keys for in-flight jobs so the terminal envelope can
-    /// be persisted on completion.
-    private var idempotencyByJob: [JobId: IdempotencyKey] = [:]
+    /// be persisted on completion. Visible to the idempotency extension.
+    var idempotencyByJob: [JobId: IdempotencyKey] = [:]
     /// Optional advertised agent inventory (ARCP v1.1 §7.5). When set, the
     /// runtime validates `agent@version` references on `tool.invoke` against
     /// it and surfaces `agentVersionNotAvailable` for unknown pins.
     public var agentInventory: AgentInventory?
 
-    private func send(_ envelope: Envelope) async throws {
+    /// Visible to the idempotency extension (`JobManager+Idempotency.swift`).
+    func send(_ envelope: Envelope) async throws {
         if let jid = envelope.jobId, var record = jobs[jid] {
             record.lastEventSeq &+= 1
             jobs[jid] = record
@@ -595,97 +598,6 @@ public actor JobManager {
         await credentialManager?.revokeAll(jobId: jobId)
     }
 
-    /// If `jobId` carries a tracked idempotency key, persist the terminal
-    /// `MessageType` for future lookups by the same (principal, key).
-    private func persistIdempotencyIfNeeded(jobId: JobId, terminal: MessageType) async {
-        guard let key = idempotencyByJob.removeValue(forKey: jobId),
-            let eventLog,
-            let principal = principalSubject
-        else { return }
-        guard let payloadValue = Self.encodePayloadBody(terminal) else { return }
-        let cached: JSONValue = .object([
-            "job_id": .string(jobId.rawValue),
-            "type": .string(terminal.typeName),
-            "payload": payloadValue,
-        ])
-        let expiresAt = Date(timeIntervalSinceNow: 24 * 60 * 60)
-        try? await eventLog.recordIdempotency(
-            principal: principal,
-            key: key,
-            response: cached,
-            expiresAt: expiresAt
-        )
-    }
-
-    /// Replay a cached idempotency response for `key`. Returns `true` when a
-    /// hit was found and emitted, `false` otherwise (caller should proceed
-    /// with normal handling).
-    private func replayCachedIdempotency(
-        key: IdempotencyKey,
-        invokeId: MessageId
-    ) async throws -> Bool {
-        guard let eventLog, let principal = principalSubject else { return false }
-        guard let cached = try await eventLog.lookupIdempotency(principal: principal, key: key)
-        else { return false }
-        guard case .object(let dict) = cached,
-            case .string(let jobIdValue) = dict["job_id"] ?? .null,
-            case .string(let typeName) = dict["type"] ?? .null,
-            let payloadValue = dict["payload"],
-            let terminal = Self.decodePayloadBody(typeName: typeName, payload: payloadValue)
-        else {
-            // Cached response present but malformed — treat as miss.
-            return false
-        }
-        let jobId = JobId(jobIdValue)
-        try? await send(
-            Envelope(
-                sessionId: sessionId,
-                jobId: jobId,
-                correlationId: invokeId,
-                payload: .jobAccepted(JobAcceptedPayload(jobId: jobId, credentials: nil))
-            )
-        )
-        try? await send(
-            Envelope(
-                sessionId: sessionId,
-                jobId: jobId,
-                correlationId: invokeId,
-                payload: terminal
-            )
-        )
-        return true
-    }
-
-    /// Encode a `MessageType` payload body as JSON (just the payload object —
-    /// the `type` discriminant is stored separately).
-    private static func encodePayloadBody(_ payload: MessageType) -> JSONValue? {
-        let envelope = Envelope(payload: payload)
-        guard let data = try? envelope.toJSON(),
-            let value = try? Envelope.makeDecoder().decode(JSONValue.self, from: data),
-            case .object(let dict) = value
-        else { return nil }
-        return dict["payload"]
-    }
-
-    /// Decode a payload body previously written with `encodePayloadBody`,
-    /// using `typeName` as the dispatch discriminant.
-    private static func decodePayloadBody(
-        typeName: String,
-        payload: JSONValue
-    ) -> MessageType? {
-        let synthetic: JSONValue = .object([
-            "arcp": .string("1.1"),
-            "id": .string("idempotency_replay"),
-            "type": .string(typeName),
-            "timestamp": .string(ISO8601DateFormatter().string(from: Date())),
-            "payload": payload,
-        ])
-        guard let data = try? Envelope.makeEncoder().encode(synthetic),
-            let envelope = try? Envelope.makeDecoder().decode(Envelope.self, from: data)
-        else { return nil }
-        return envelope.payload
-    }
-
     private func transition(jobId: JobId, to state: JobState) {
         if var record = jobs[jobId] {
             record.state = state
@@ -838,209 +750,5 @@ public actor JobManager {
         let page = Array(entries[start..<end])
         let nextCursor: String? = end < entries.count ? String(end) : nil
         return (page, nextCursor)
-    }
-}
-
-extension Duration {
-    /// Approximate seconds count, including fractional part.
-    public var timeInterval: Double {
-        Double(components.seconds) + Double(components.attoseconds) / 1.0e18
-    }
-}
-
-/// Concrete `JobContext` implementation backed by the runtime's send hook.
-struct ConcreteJobContext: JobContext, Sendable {
-    let jobId: JobId
-    let sessionId: SessionId
-    let sendEnvelope: @Sendable (Envelope) async throws -> Void
-    let streamManager: StreamManager
-    let manager: JobManager
-    let isCancelledProvider: @Sendable () async -> Bool
-    let leaseExpiresAt: Date?
-    let budget: BudgetTracker
-    let modelUse: ModelUse?
-    let credentialManager: CredentialManager?
-    let invokeCorrelationId: MessageId
-
-    func checkLeaseExpiration() throws {
-        guard let leaseExpiresAt, Date() >= leaseExpiresAt else { return }
-        throw ARCPError.leaseExpired(
-            leaseId: LeaseId("lease_job_\(jobId.rawValue)"),
-            expiredAt: leaseExpiresAt
-        )
-    }
-
-    func charge(name: String, amount: Double, currency: String) async throws {
-        let remaining = try budget.charge(currency: currency, amount: amount)
-        let dims: [String: JSONValue] = ["currency": .string(currency)]
-        try await metric(name: name, value: amount, unit: currency, dims: dims)
-        try await metric(
-            name: "cost.budget.remaining",
-            value: remaining.isFinite ? remaining : Double.greatestFiniteMagnitude,
-            unit: currency,
-            dims: dims
-        )
-    }
-
-    func checkModelUse(_ model: String) throws {
-        try ModelUsePolicy.check(modelUse, model: model)
-    }
-
-    func rotateCredential(id: String) async throws -> ProvisionedCredential {
-        guard let credentialManager else {
-            throw ARCPError.failedPrecondition(detail: "credential provisioner is not configured")
-        }
-        let credential = try await credentialManager.rotate(jobId: jobId, credentialId: id)
-        try await log(
-            level: .info,
-            message: "credential rotated",
-            attributes: [
-                "phase": .string("credential_rotated"),
-                "credential_id": .string(id),
-            ]
-        )
-        return credential
-    }
-
-    func reportProgress(
-        percent: Double?,
-        message: String?,
-        attributes: [String: JSONValue]?
-    ) async throws {
-        try await sendEnvelope(
-            Envelope(
-                sessionId: sessionId,
-                jobId: jobId,
-                payload: .jobProgress(
-                    JobProgressPayload(percent: percent, message: message, attributes: attributes)
-                )
-            )
-        )
-    }
-
-    /// Concrete override emitting the §8.2.1 fields directly on the wire.
-    func reportProgress(
-        current: Double,
-        total: Double? = nil,
-        units: String? = nil,
-        message: String? = nil
-    ) async throws {
-        // §8.2.1: `current` MUST be a non-negative number and SHOULD be
-        // <= total when total is present. Reject non-conformant values
-        // before they reach the wire.
-        guard current >= 0, current.isFinite else {
-            throw ARCPError.invalidArgument(
-                field: "current",
-                detail: "progress current must be a non-negative finite number, got \(current)"
-            )
-        }
-        if let total, current > total {
-            throw ARCPError.invalidArgument(
-                field: "current",
-                detail: "progress current \(current) exceeds total \(total)"
-            )
-        }
-        try await sendEnvelope(
-            Envelope(
-                sessionId: sessionId,
-                jobId: jobId,
-                payload: .jobProgress(
-                    JobProgressPayload(
-                        current: current,
-                        total: total,
-                        units: units,
-                        message: message
-                    )
-                )
-            )
-        )
-    }
-
-    func openStream(
-        kind: StreamKind,
-        contentType: String?,
-        encoding: String?
-    ) async throws -> any StreamHandle {
-        try await streamManager.openOutbound(
-            jobId: jobId,
-            kind: kind,
-            contentType: contentType,
-            encoding: encoding
-        )
-    }
-
-    func checkCancellation() async throws {
-        try Task.checkCancellation()
-        if await isCancelledProvider() {
-            throw ARCPError.cancelled(operation: "job \(jobId)", reason: "cancel requested")
-        }
-    }
-
-    func log(level: LogLevel, message: String, attributes: [String: JSONValue]?) async throws {
-        try await sendEnvelope(
-            Envelope(
-                sessionId: sessionId,
-                jobId: jobId,
-                payload: .log(LogPayload(level: level, message: message, attributes: attributes))
-            )
-        )
-    }
-
-    func metric(
-        name: String,
-        value: Double,
-        unit: String?,
-        dims: [String: JSONValue]?
-    ) async throws {
-        try await sendEnvelope(
-            Envelope(
-                sessionId: sessionId,
-                jobId: jobId,
-                payload: .metric(MetricPayload(name: name, value: value, unit: unit, dims: dims))
-            )
-        )
-    }
-
-    func requestPermission(
-        permission: String,
-        resource: String,
-        operation: String,
-        reason: String?,
-        leaseSeconds: Int
-    ) async throws -> LeaseId {
-        try await manager.requestPermission(
-            jobId: jobId,
-            permission: permission,
-            resource: resource,
-            operation: operation,
-            reason: reason,
-            leaseSeconds: leaseSeconds,
-            timeout: .seconds(300)
-        )
-    }
-
-    func emitResultChunk(
-        resultId: String,
-        chunkSeq: UInt64,
-        data: String,
-        encoding: ResultChunkEncoding,
-        more: Bool
-    ) async throws {
-        await manager.recordResultChunk(jobId: jobId, resultId: resultId)
-        try await sendEnvelope(
-            Envelope(
-                sessionId: sessionId,
-                jobId: jobId,
-                payload: .jobResultChunk(
-                    JobResultChunkPayload(
-                        resultId: resultId,
-                        chunkSeq: chunkSeq,
-                        data: data,
-                        encoding: encoding,
-                        more: more
-                    )
-                )
-            )
-        )
     }
 }
