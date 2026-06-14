@@ -168,27 +168,36 @@ public actor JobManager {
             )
             return
         }
-        // §9.5: lease_constraints.expires_at must be in the future at
-        // submission time. Past or invalid values surface as
-        // INVALID_REQUEST (invalidArgument) BEFORE the job is accepted.
-        if let constraints = payload.leaseConstraints,
-            constraints.expiresAt <= Date()
-        {
-            try await rawSend(
-                Envelope(
-                    sessionId: sessionId,
-                    correlationId: envelope.id,
-                    payload: .toolError(
-                        ToolErrorPayload(
-                            error: ARCPError.invalidArgument(
-                                field: "lease_constraints.expires_at",
-                                detail: "must be in the future"
-                            ).toEnvelope()
+        // §9.5: lease_constraints.expires_at must be UTC (Z-suffixed) and in
+        // the future at submission time. Non-UTC, malformed, or past values
+        // surface as INVALID_REQUEST (invalidArgument) BEFORE the job is
+        // accepted.
+        if let constraints = payload.leaseConstraints {
+            let invalidDetail: String?
+            if !constraints.isUTC {
+                invalidDetail = "must be UTC (Z suffix)"
+            } else if constraints.expiresAt <= Date() {
+                invalidDetail = "must be in the future"
+            } else {
+                invalidDetail = nil
+            }
+            if let invalidDetail {
+                try await rawSend(
+                    Envelope(
+                        sessionId: sessionId,
+                        correlationId: envelope.id,
+                        payload: .toolError(
+                            ToolErrorPayload(
+                                error: ARCPError.invalidArgument(
+                                    field: "lease_constraints.expires_at",
+                                    detail: invalidDetail
+                                ).toEnvelope()
+                            )
                         )
                     )
                 )
-            )
-            return
+                return
+            }
         }
         let jobId = JobId.random()
         let leaseSnapshot = LeaseSnapshot(

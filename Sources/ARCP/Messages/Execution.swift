@@ -5,16 +5,81 @@ import Foundation
 /// Carries `expires_at` for time-bounded lease authority. When present,
 /// the runtime MUST refuse authority-bearing operations attempted at or
 /// after `expiresAt` with `LEASE_EXPIRED`.
+///
+/// §9.5: `expires_at` is ISO 8601 with timezone and MUST be UTC (`Z`
+/// suffix, or the equivalent `+00:00`). Non-UTC or malformed values are
+/// rejected with `INVALID_REQUEST` at the decoding boundary — because
+/// `Date` discards the original zone, this cannot be enforced after the
+/// value has been converted.
 public struct LeaseConstraints: Sendable, Codable, Hashable {
     /// UTC instant after which the lease no longer authorizes operations.
     public var expiresAt: Date
 
+    /// Whether the decoded `expires_at` string carried an explicit UTC
+    /// designator (`Z` or `+00:00`). `true` for values constructed in code.
+    /// The runtime rejects a non-UTC value with `INVALID_REQUEST` during
+    /// dispatch (it cannot be enforced after `Date` discards the zone).
+    public var isUTC: Bool
+
     public init(expiresAt: Date) {
         self.expiresAt = expiresAt
+        self.isUTC = true
     }
 
     enum CodingKeys: String, CodingKey {
         case expiresAt = "expires_at"
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let raw = try container.decode(String.self, forKey: .expiresAt)
+        // §9.5: require an explicit UTC designator. Accept the canonical `Z`
+        // suffix or the equivalent `+00:00`/`+0000`; any other offset is
+        // flagged non-UTC and rejected by the runtime during dispatch.
+        self.isUTC =
+            raw.hasSuffix("Z") || raw.hasSuffix("z")
+            || raw.hasSuffix("+00:00") || raw.hasSuffix("+0000")
+        guard let date = Self.parse(raw) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .expiresAt,
+                in: container,
+                debugDescription: "expires_at is not a valid ISO 8601 timestamp: \(raw)"
+            )
+        }
+        self.expiresAt = date
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(Self.format(expiresAt), forKey: .expiresAt)
+    }
+
+    public static func == (lhs: LeaseConstraints, rhs: LeaseConstraints) -> Bool {
+        lhs.expiresAt == rhs.expiresAt
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(expiresAt)
+    }
+
+    nonisolated(unsafe) private static let formatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    nonisolated(unsafe) private static let formatterNoFraction: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
+
+    private static func parse(_ raw: String) -> Date? {
+        formatter.date(from: raw) ?? formatterNoFraction.date(from: raw)
+    }
+
+    private static func format(_ date: Date) -> String {
+        formatter.string(from: date)
     }
 }
 
