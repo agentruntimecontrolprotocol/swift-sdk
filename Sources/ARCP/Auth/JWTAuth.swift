@@ -70,9 +70,10 @@ public struct JWTAuthValidator: AuthValidator {
 }
 
 /// Minimal claim set used by ARCP JWTs. Deployments are free to issue richer
-/// JWTs; only the standard fields plus the optional `nonce` (used for
-/// challenge binding) and `jti` (replay-tracking identifier) are inspected
-/// here.
+/// JWTs. The standard fields plus the optional `nonce` are inspected here
+/// (`nonce` is checked for challenge binding). `jti` is decoded for
+/// completeness but is not currently used — the validator performs no
+/// replay tracking.
 struct ARCPClaims: JWTPayload {
     var sub: SubjectClaim
     var aud: AudienceClaim

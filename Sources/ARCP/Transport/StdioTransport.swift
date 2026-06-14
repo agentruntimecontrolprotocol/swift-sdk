@@ -10,7 +10,6 @@ public actor StdioTransport: Transport {
     private let inboundContinuation: AsyncStream<Envelope>.Continuation
     private let outbound: FileHandle
     private let inbound: FileHandle
-    private nonisolated(unsafe) var buffer = Data()
     private var closed = false
 
     public init(inbound: FileHandle = .standardInput, outbound: FileHandle = .standardOutput) {
