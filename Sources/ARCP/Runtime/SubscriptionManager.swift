@@ -24,12 +24,14 @@ public actor SubscriptionManager {
     public func subscribe(
         subscriptionId: SubscriptionId,
         ownerSessionId: SessionId? = nil,
+        principalScope: Set<SessionId>? = nil,
         filter: SubscriptionFilter,
         since: SubscriptionSince?,
         send: @escaping @Sendable (Envelope) async throws -> Void
     ) async {
         subscriptions[subscriptionId] = SubscriptionRecord(
             ownerSessionId: ownerSessionId,
+            principalScope: principalScope,
             filter: filter,
             send: send
         )
@@ -74,13 +76,44 @@ public actor SubscriptionManager {
     /// `subscribe.event` and cascading without bound.
     public func route(envelope: Envelope) async {
         if case .subscribeEvent = envelope.payload { return }
-        for (subId, record) in subscriptions where record.matches(envelope) {
-            try? await record.send(
-                Envelope(
-                    sessionId: envelope.sessionId,
-                    subscriptionId: subId,
-                    payload: .subscribeEvent(SubscribeEventPayload(event: encode(envelope)))
-                )
+        // Snapshot the matching subscribers inside the actor, then deliver
+        // concurrently outside the serial loop so one slow subscriber does not
+        // delay the rest. Failed sends are reported back and pruned.
+        let event = encode(envelope)
+        let sessionId = envelope.sessionId
+        let matching = subscriptions.filter { $0.value.matches(envelope) }
+        guard !matching.isEmpty else { return }
+
+        let failed = await withTaskGroup(of: SubscriptionId?.self) { group in
+            for (subId, record) in matching {
+                let send = record.send
+                group.addTask {
+                    do {
+                        try await send(
+                            Envelope(
+                                sessionId: sessionId,
+                                subscriptionId: subId,
+                                payload: .subscribeEvent(SubscribeEventPayload(event: event))
+                            )
+                        )
+                        return nil
+                    } catch {
+                        return subId
+                    }
+                }
+            }
+            var failures: [SubscriptionId] = []
+            for await result in group where result != nil {
+                failures.append(result!)
+            }
+            return failures
+        }
+
+        for subId in failed {
+            subscriptions.removeValue(forKey: subId)
+            log.warning(
+                "subscription delivery failed; removed",
+                metadata: ["subscription": "\(subId)"]
             )
         }
     }
@@ -171,10 +204,21 @@ public actor SubscriptionManager {
 
     private struct SubscriptionRecord: Sendable {
         let ownerSessionId: SessionId?
+        /// Set of session ids the subscriber's principal is authorized to
+        /// observe (§7.6 / §14, "same principal only" default). When set, an
+        /// envelope whose `sessionId` is outside this scope never matches,
+        /// regardless of the client-supplied filter.
+        let principalScope: Set<SessionId>?
         let filter: SubscriptionFilter
         let send: @Sendable (Envelope) async throws -> Void
 
         func matches(_ envelope: Envelope) -> Bool {
+            // §14: default-deny cross-principal envelopes. Even an empty client
+            // filter only ever observes sessions owned by the subscriber's
+            // principal.
+            if let scope = principalScope {
+                guard let sid = envelope.sessionId, scope.contains(sid) else { return false }
+            }
             if let allowed = filter.sessionIds,
                 !allowed.contains(where: { envelope.sessionId == $0 })
             {

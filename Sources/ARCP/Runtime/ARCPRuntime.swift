@@ -419,6 +419,51 @@ public actor ARCPRuntime {
         info: SessionInfo,
         transport: any Transport
     ) async throws {
+        // §7.6 / §14: authorize the subscription against the subscriber's
+        // principal. The default is "same principal only": a subscriber may
+        // observe only sessions owned by its own principal. An explicit
+        // filter naming another principal's session is rejected with
+        // PERMISSION_DENIED; absent an explicit filter, matching is scoped to
+        // the subscriber's own sessions.
+        let ownedSessions = Set(
+            sessions.filter { $0.value.principal.subject == info.principal.subject }.keys
+        )
+        if let requested = payload.filter.sessionIds {
+            let unauthorized = requested.filter { !ownedSessions.contains($0) }
+            if !unauthorized.isEmpty {
+                log.warning(
+                    "subscribe denied (cross-principal)",
+                    metadata: [
+                        "subscriber": "\(info.principal.subject)",
+                        "requested": "\(requested.map(\.rawValue))",
+                        "decision": "PERMISSION_DENIED",
+                    ]
+                )
+                try await transport.send(
+                    Envelope(
+                        sessionId: info.sessionId,
+                        correlationId: envelope.id,
+                        payload: .nack(
+                            NackPayload(
+                                error: ARCPError.permissionDenied(
+                                    permission: "job.subscribe",
+                                    resource: "sessions \(unauthorized.map(\.rawValue))"
+                                ).toEnvelope()
+                            )
+                        )
+                    )
+                )
+                return
+            }
+        }
+        log.info(
+            "subscribe accepted",
+            metadata: [
+                "subscriber": "\(info.principal.subject)",
+                "scope": "\(ownedSessions.map(\.rawValue))",
+                "decision": "ACCEPT",
+            ]
+        )
         let subscriptionId = SubscriptionId.random()
         // Deliveries to the subscriber must NOT be re-routed through
         // SubscriptionManager, or an empty-filter subscriber will see its own
@@ -430,6 +475,7 @@ public actor ARCPRuntime {
         await subscriptionManager.subscribe(
             subscriptionId: subscriptionId,
             ownerSessionId: info.sessionId,
+            principalScope: ownedSessions,
             filter: payload.filter,
             since: payload.since,
             send: deliver

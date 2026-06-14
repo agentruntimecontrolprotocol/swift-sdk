@@ -52,6 +52,63 @@ struct SubscriptionCleanupTests {
         #expect(count < 32)
     }
 
+    @Test("cross-principal subscribe is denied with PERMISSION_DENIED (§7.6/§14)")
+    func crossPrincipalSubscribeDenied() async throws {
+        let runtime = try ARCPRuntime(
+            identity: IdentityBlock(kind: "rt", version: "1"),
+            supportedCapabilities: Capabilities(durableJobs: true, subscriptions: true),
+            auth: BearerAuthValidator(subjectsByToken: ["alice": "alice", "bob": "bob"])
+        )
+        let alicePair = MemoryTransport.makePair()
+        let aliceTask = Task { try await runtime.acceptSession(over: alicePair.server) }
+        let alice = try await ARCPClient.open(
+            transport: alicePair.client,
+            auth: AuthBlock(scheme: .bearer, token: "alice"),
+            client: IdentityBlock(kind: "c", version: "1"),
+            capabilities: Capabilities(durableJobs: true, subscriptions: true)
+        )
+        let bobPair = MemoryTransport.makePair()
+        let bobTask = Task { try await runtime.acceptSession(over: bobPair.server) }
+        let bob = try await ARCPClient.open(
+            transport: bobPair.client,
+            auth: AuthBlock(scheme: .bearer, token: "bob"),
+            client: IdentityBlock(kind: "c", version: "1"),
+            capabilities: Capabilities(durableJobs: true, subscriptions: true)
+        )
+        defer {
+            Task {
+                await alice.close()
+                await bob.close()
+                _ = try? await aliceTask.value
+                _ = try? await bobTask.value
+            }
+        }
+
+        let aliceSession = alice.info.sessionId
+        let nackTask = Task { () -> NackPayload? in
+            for await env in bob.unhandled {
+                if case .nack(let payload) = env.payload { return payload }
+            }
+            return nil
+        }
+        try await bob.send(
+            Envelope(
+                sessionId: bob.info.sessionId,
+                payload: .subscribe(
+                    SubscribePayload(filter: SubscriptionFilter(sessionIds: [aliceSession]))
+                )
+            )
+        )
+        let timeout = Task { () -> NackPayload? in
+            try? await Task.sleep(for: .seconds(2))
+            nackTask.cancel()
+            return nil
+        }
+        let nack = await nackTask.value
+        timeout.cancel()
+        #expect(nack?.error.code == .permissionDenied)
+    }
+
     @Test("removeAllOwned drops session-scoped subscriptions")
     func removeAllOwned() async {
         let eventLog = try? EventLog.inMemory()
