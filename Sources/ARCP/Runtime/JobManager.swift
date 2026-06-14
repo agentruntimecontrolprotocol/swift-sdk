@@ -302,20 +302,31 @@ public actor JobManager {
     /// Handle a `cancel` request (RFC §10.4). Cooperative — the handler must
     /// observe `Task.checkCancellation()` to terminate cleanly.
     public func handleCancel(envelope: Envelope, payload: CancelPayload) async throws {
-        guard payload.target == .job, let jobId = jobs.keys.first(where: { $0.rawValue == payload.targetId })
-        else {
+        guard payload.target == .job else {
             try await send(
                 Envelope(
                     sessionId: sessionId,
                     correlationId: envelope.id,
                     payload: .cancelRefused(
-                        CancelRefusedPayload(reason: "unknown target", code: .notFound)
+                        CancelRefusedPayload(reason: "unsupported cancel target", code: .invalidArgument)
                     )
                 )
             )
             return
         }
-        guard var record = jobs[jobId] else { return }
+        let jobId = JobId(payload.targetId)
+        guard var record = jobs[jobId] else {
+            try await send(
+                Envelope(
+                    sessionId: sessionId,
+                    correlationId: envelope.id,
+                    payload: .cancelRefused(
+                        CancelRefusedPayload(reason: "unknown job", code: .jobNotFound)
+                    )
+                )
+            )
+            return
+        }
         if record.state.isTerminal {
             try await send(
                 Envelope(
@@ -342,22 +353,55 @@ public actor JobManager {
             )
         )
 
-        // Deadline escalation: after deadline elapses, ensure terminal event was emitted.
-        Task { [weak self, deadline = payload.deadlineMs] in
+        // Deadline escalation: after deadline elapses, ensure terminal event
+        // was emitted. The deadline is clamped to [0, maxCancelDeadlineMs] so a
+        // client cannot accumulate long-lived sleeping tasks with a huge
+        // (or negative) deadline. The task handle is retained on the JobRecord
+        // so it can be cancelled on terminal transition and on shutdown().
+        let clampedDeadline = min(max(payload.deadlineMs, 0), Self.maxCancelDeadlineMs)
+        let escalationTask = Task { [weak self, deadline = clampedDeadline] in
             try? await Task.sleep(for: .milliseconds(deadline))
             await self?.escalateCancelIfNeeded(jobId: jobId, reason: "deadline elapsed")
         }
+        if var updated = jobs[jobId] {
+            updated.cancelEscalationTask = escalationTask
+            jobs[jobId] = updated
+        }
     }
+
+    /// Upper bound for a client-supplied cancel `deadline_ms` (10 minutes).
+    static let maxCancelDeadlineMs = 10 * 60 * 1000
 
     /// Handle an `interrupt` (RFC §10.5). Transitions the job to `.blocked`.
     /// An ack is sent so the client knows the interrupt was received.
     public func handleInterrupt(envelope: Envelope, payload: InterruptPayload) async throws {
-        guard payload.target == .job,
-            let jobId = jobs.keys.first(where: { $0.rawValue == payload.targetId })
-        else {
+        guard payload.target == .job else {
+            try await send(
+                Envelope(
+                    sessionId: sessionId,
+                    correlationId: envelope.id,
+                    payload: .cancelRefused(
+                        CancelRefusedPayload(reason: "unsupported interrupt target", code: .invalidArgument)
+                    )
+                )
+            )
             return
         }
-        guard var record = jobs[jobId] else { return }
+        let jobId = JobId(payload.targetId)
+        guard var record = jobs[jobId] else {
+            // §7.4: interrupting an unknown (or already-terminal) job MUST
+            // produce an explicit refusal so the client is not left waiting.
+            try await send(
+                Envelope(
+                    sessionId: sessionId,
+                    correlationId: envelope.id,
+                    payload: .cancelRefused(
+                        CancelRefusedPayload(reason: "unknown job", code: .jobNotFound)
+                    )
+                )
+            )
+            return
+        }
         record.state = .blocked
         jobs[jobId] = record
         try await send(
@@ -463,6 +507,7 @@ public actor JobManager {
         for (jobId, record) in jobs {
             record.runTask?.cancel()
             record.heartbeatTask?.cancel()
+            record.cancelEscalationTask?.cancel()
             jobs[jobId]?.state = .cancelled
             await credentialManager?.revokeAll(jobId: jobId)
         }
@@ -489,6 +534,7 @@ public actor JobManager {
         )
         var updated = record
         updated.state = .cancelled
+        updated.cancelEscalationTask = nil
         jobs[jobId] = updated
         record.heartbeatTask?.cancel()
         await credentialManager?.revokeAll(jobId: jobId)
@@ -643,6 +689,12 @@ public actor JobManager {
     private func transition(jobId: JobId, to state: JobState) {
         if var record = jobs[jobId] {
             record.state = state
+            // Once the job is terminal there is nothing left to escalate, so
+            // release the cancel-deadline task instead of letting it sleep out.
+            if state.isTerminal, let escalation = record.cancelEscalationTask {
+                escalation.cancel()
+                record.cancelEscalationTask = nil
+            }
             jobs[jobId] = record
         }
     }
@@ -666,8 +718,24 @@ public actor JobManager {
                 )
             }
             return JobCompletedPayload(result: value)
-        case .ref(let ref): return JobCompletedPayload(resultRef: ref)
-        case .empty: return JobCompletedPayload()
+        case .ref(let ref):
+            // §8.4: once any chunk is emitted, the job MUST NOT also return an
+            // inline result_ref (mixing inline result and result_chunk).
+            if let streamedResultId {
+                throw ARCPError.invalidArgument(
+                    field: "result_ref",
+                    detail:
+                        "job emitted result_chunk \(streamedResultId) and returned an inline result_ref"
+                )
+            }
+            return JobCompletedPayload(resultRef: ref)
+        case .empty:
+            // §8.4: a job that streamed chunks completes by referencing the
+            // streamed result_id, not with an empty payload.
+            if let streamedResultId {
+                return JobCompletedPayload(resultId: streamedResultId)
+            }
+            return JobCompletedPayload()
         case .streamed(let resultId, let size, let summary):
             if let streamedResultId, streamedResultId != resultId {
                 throw ARCPError.invalidArgument(
@@ -716,6 +784,7 @@ public actor JobManager {
         var lastEventSeq: UInt64 = 0
         var runTask: Task<Void, Never>?
         var heartbeatTask: Task<Void, Never>?
+        var cancelEscalationTask: Task<Void, Never>?
         var leaseExpiresAt: Date?
         var costBudget: CostBudget?
         var modelUse: ModelUse?
@@ -856,6 +925,21 @@ struct ConcreteJobContext: JobContext, Sendable {
         units: String? = nil,
         message: String? = nil
     ) async throws {
+        // §8.2.1: `current` MUST be a non-negative number and SHOULD be
+        // <= total when total is present. Reject non-conformant values
+        // before they reach the wire.
+        guard current >= 0, current.isFinite else {
+            throw ARCPError.invalidArgument(
+                field: "current",
+                detail: "progress current must be a non-negative finite number, got \(current)"
+            )
+        }
+        if let total, current > total {
+            throw ARCPError.invalidArgument(
+                field: "current",
+                detail: "progress current \(current) exceeds total \(total)"
+            )
+        }
         try await sendEnvelope(
             Envelope(
                 sessionId: sessionId,

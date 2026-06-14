@@ -70,7 +70,7 @@ struct JobLifecycleTests {
         #expect(envelope.code == .invalidArgument)
     }
 
-    @Test("Unknown tool name yields tool.error with NOT_FOUND")
+    @Test("Unknown tool name yields tool.error with AGENT_NOT_AVAILABLE (§7.5)")
     func unknownTool() async throws {
         let pair = try await makePair(handler: EchoTool())
         defer {
@@ -84,7 +84,7 @@ struct JobLifecycleTests {
             Issue.record("expected failed, got \(result.outcome)")
             return
         }
-        #expect(envelope.code == .notFound)
+        #expect(envelope.code == .agentNotAvailable)
     }
 
     @Test("Cancellation drives the job to job.cancelled")
