@@ -40,6 +40,42 @@ struct IdempotencyTests {
         let count = await CountingTool.callCount
         #expect(count == 1)
     }
+
+    @Test("Reusing an idempotency key with conflicting params returns DUPLICATE_KEY (§7.2)")
+    func conflictingReuseReturnsDuplicateKey() async throws {
+        let fixture = IntegrationFixture(handler: EchoArgsTool())
+        let open = try await fixture.open()
+        defer { open.close() }
+
+        let key = IdempotencyKey("idem_conflict_01")
+        let first = try await open.client.invoke(
+            tool: "echo",
+            arguments: .object(["a": .int(1)]),
+            idempotencyKey: key
+        )
+        guard case .completed = first.outcome else {
+            Issue.record("first invocation did not complete")
+            return
+        }
+        // Same key, different arguments → conflicting reuse.
+        let second = try await open.client.invoke(
+            tool: "echo",
+            arguments: .object(["a": .int(2)]),
+            idempotencyKey: key
+        )
+        guard case .failed(let error) = second.outcome else {
+            Issue.record("expected DUPLICATE_KEY failure, got \(second.outcome)")
+            return
+        }
+        #expect(error.code == .duplicateKey)
+    }
+}
+
+private struct EchoArgsTool: ToolHandler {
+    let name = "echo"
+    func execute(invocation: ToolInvocation, context: any JobContext) async throws -> ToolOutput {
+        .value(invocation.arguments)
+    }
 }
 
 private struct CountingTool: ToolHandler {

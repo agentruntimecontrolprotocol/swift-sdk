@@ -5,16 +5,21 @@ extension JobManager {
     /// If `jobId` carries a tracked idempotency key, persist the terminal
     /// `MessageType` for future lookups by the same (principal, key).
     func persistIdempotencyIfNeeded(jobId: JobId, terminal: MessageType) async {
+        let fingerprint = idempotencyFingerprintByJob.removeValue(forKey: jobId)
         guard let key = idempotencyByJob.removeValue(forKey: jobId),
             let eventLog,
             let principal = principalSubject
         else { return }
         guard let payloadValue = Self.encodePayloadBody(terminal) else { return }
-        let cached: JSONValue = .object([
+        var cachedFields: [String: JSONValue] = [
             "job_id": .string(jobId.rawValue),
             "type": .string(terminal.typeName),
             "payload": payloadValue,
-        ])
+        ]
+        if let fingerprint {
+            cachedFields["request_fingerprint"] = .string(fingerprint)
+        }
+        let cached: JSONValue = .object(cachedFields)
         let expiresAt = Date(timeIntervalSinceNow: 24 * 60 * 60)
         try? await eventLog.recordIdempotency(
             principal: principal,
@@ -29,7 +34,8 @@ extension JobManager {
     /// with normal handling).
     func replayCachedIdempotency(
         key: IdempotencyKey,
-        invokeId: MessageId
+        invokeId: MessageId,
+        payload: ToolInvokePayload
     ) async throws -> Bool {
         guard let eventLog, let principal = principalSubject else { return false }
         guard let cached = try await eventLog.lookupIdempotency(principal: principal, key: key)
@@ -42,6 +48,27 @@ extension JobManager {
         else {
             // Cached response present but malformed — treat as miss.
             return false
+        }
+        // §7.2: a reused key with conflicting parameters MUST return
+        // DUPLICATE_KEY; identical parameters replay the cached job.accepted.
+        if case .string(let cachedFingerprint)? = dict["request_fingerprint"],
+            cachedFingerprint != Self.requestFingerprint(payload)
+        {
+            try? await send(
+                Envelope(
+                    sessionId: sessionId,
+                    correlationId: invokeId,
+                    payload: .toolError(
+                        ToolErrorPayload(
+                            error: ARCPError.duplicateKey(
+                                key: key.rawValue,
+                                detail: "idempotency_key reused with conflicting parameters"
+                            ).toEnvelope()
+                        )
+                    )
+                )
+            )
+            return true
         }
         let jobId = JobId(jobIdValue)
         // §7.2 / §9.8.2: the replayed job.accepted matches the original's
@@ -67,6 +94,19 @@ extension JobManager {
             )
         )
         return true
+    }
+
+    /// Deterministic fingerprint of a `tool.invoke`'s parameters (tool,
+    /// arguments, cost.budget, model.use, lease_constraints, max_runtime_sec)
+    /// used to detect conflicting idempotency-key reuse (§7.2). The encoder
+    /// uses sorted keys, so equal parameters always yield equal fingerprints.
+    static func requestFingerprint(_ payload: ToolInvokePayload) -> String {
+        guard let data = try? Envelope.makeEncoder().encode(payload),
+            let string = String(data: data, encoding: .utf8)
+        else {
+            return "\(payload.tool)"
+        }
+        return string
     }
 
     /// Encode a `MessageType` payload body as JSON (just the payload object —

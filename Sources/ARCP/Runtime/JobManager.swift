@@ -27,6 +27,10 @@ public actor JobManager {
     /// Tracks idempotency keys for in-flight jobs so the terminal envelope can
     /// be persisted on completion. Visible to the idempotency extension.
     var idempotencyByJob: [JobId: IdempotencyKey] = [:]
+    /// Fingerprint of the original request parameters per in-flight job, so a
+    /// later reuse with conflicting params can be detected (§7.2). Visible to
+    /// the idempotency extension.
+    var idempotencyFingerprintByJob: [JobId: String] = [:]
     /// Optional advertised agent inventory (ARCP v1.1 §7.5). When set, the
     /// runtime validates `agent@version` references on `tool.invoke` against
     /// it and surfaces `agentVersionNotAvailable` for unknown pins.
@@ -125,7 +129,8 @@ public actor JobManager {
         // cached terminal response for the same (principal, key), re-emit it
         // correlated to the new invoke id without re-executing the handler.
         if let key = envelope.idempotencyKey,
-            try await replayCachedIdempotency(key: key, invokeId: envelope.id)
+            try await replayCachedIdempotency(
+                key: key, invokeId: envelope.id, payload: payload)
         {
             return
         }
@@ -295,6 +300,7 @@ public actor JobManager {
 
         if let key = envelope.idempotencyKey {
             idempotencyByJob[jobId] = key
+            idempotencyFingerprintByJob[jobId] = Self.requestFingerprint(payload)
         }
         let inboundTrace = Self.traceContext(from: envelope)
         let runTask = Task { [weak self] in
