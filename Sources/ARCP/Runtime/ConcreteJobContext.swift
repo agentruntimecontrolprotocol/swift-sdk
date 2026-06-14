@@ -16,13 +16,19 @@ struct ConcreteJobContext: JobContext, Sendable {
     let manager: JobManager
     let isCancelledProvider: @Sendable () async -> Bool
     let leaseExpiresAt: Date?
+    /// Monotonic-clock deadline derived from `leaseExpiresAt` at job
+    /// acceptance (ARCP v1.1 §14). `nil` when the lease has no expiry.
+    let leaseDeadline: MonotonicDeadline?
     let budget: BudgetTracker
     let modelUse: ModelUse?
     let credentialManager: CredentialManager?
     let invokeCorrelationId: MessageId
 
     func checkLeaseExpiration() throws {
-        guard let leaseExpiresAt, Date() >= leaseExpiresAt else { return }
+        // §14: evaluate expiry against a monotonic clock (with a bounded
+        // grace), not raw wall-clock Date(). leaseExpiresAt is retained only
+        // for the wire timestamp on the thrown error.
+        guard let leaseExpiresAt, let leaseDeadline, leaseDeadline.isExpired() else { return }
         throw ARCPError.leaseExpired(
             leaseId: LeaseId("lease_job_\(jobId.rawValue)"),
             expiredAt: leaseExpiresAt

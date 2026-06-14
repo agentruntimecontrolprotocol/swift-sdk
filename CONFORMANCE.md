@@ -36,12 +36,17 @@ below.
 - `job.result_chunk` wire messages, runtime emission, client `ResultChunkStream`
 - Crash-and-resume: same `IdempotencyKey` → same `job_id`, buffered chunk replay
 
-### Permissions and leases (§6.4, §15)
+### Permissions and leases (§9, §15.4)
 
 - Permission challenges: `permission.request`, `permission.grant`, `permission.deny`
 - Lease lifecycle: grant, refresh, revoke, expiry sweep
-- `lease_constraints.expires_at` on `tool.invoke`, submission validation,
-  in-handler expiry checks via `context.checkLeaseExpiration()`
+- **Renewal stance (§9.5):** a job's `lease_constraints.expires_at` is
+  renewal-prohibited — to extend authority a client MUST cancel and resubmit.
+  `lease.refresh` / `lease.extended` apply only to §15.4 permission-challenge
+  leases (held in `LeaseManager`); no path extends a job's §9.5 `expires_at`.
+- `lease_constraints.expires_at` on `tool.invoke`, submission validation
+  (UTC `Z` suffix + future, §9.5), in-handler expiry checks via
+  `context.checkLeaseExpiration()` evaluated on a monotonic clock (§14)
 - Client-side `PermissionHandler` veto
 
 ### Cost budget (§17.3, §18.3)

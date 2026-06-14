@@ -275,6 +275,9 @@ public actor JobManager {
                 return await self.isCancelled(jobId: jobId)
             },
             leaseExpiresAt: payload.leaseConstraints?.expiresAt,
+            leaseDeadline: payload.leaseConstraints.map {
+                MonotonicDeadline(wallDeadline: $0.expiresAt)
+            },
             budget: budgetTracker,
             modelUse: payload.modelUse,
             credentialManager: credentialManager,

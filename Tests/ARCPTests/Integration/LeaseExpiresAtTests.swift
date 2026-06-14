@@ -60,7 +60,7 @@ struct LeaseExpiresAtTests {
         let result = try await fixture.client.invoke(
             tool: "expire",
             arguments: .null,
-            leaseConstraints: LeaseConstraints(expiresAt: Date(timeIntervalSinceNow: 0.05))
+            leaseConstraints: LeaseConstraints(expiresAt: Date(timeIntervalSinceNow: 0.1))
         )
         guard case .failed(let error) = result.outcome else {
             Issue.record("expected failed, got \(result.outcome)")
@@ -93,7 +93,9 @@ private struct NoopTool: ToolHandler {
 private struct ExpiringTool: ToolHandler {
     let name = "expire"
     func execute(invocation: ToolInvocation, context: any JobContext) async throws -> ToolOutput {
-        try await Task.sleep(for: .milliseconds(100))
+        // Sleep past the lease deadline plus the monotonic grace (§14) so the
+        // expiry check fires deterministically.
+        try await Task.sleep(for: .milliseconds(600))
         try context.checkLeaseExpiration()
         return .empty
     }

@@ -1,11 +1,18 @@
 import Foundation
 
-/// Per-session lease registry. RFC §15.5.
+/// Per-session registry of **permission-challenge leases** (ARCP v1.1 §15.4).
 ///
-/// Leases are minted on `permission.grant`, can be refreshed
-/// (`lease.refresh` → `lease.extended`), revoked (`lease.revoked`), or
-/// allowed to expire naturally. A periodic sweep emits `lease.revoked` with
-/// `LEASE_EXPIRED` for any lease whose `expiresAt` has passed.
+/// IMPORTANT — these are the short-lived leases minted in response to a
+/// `permission.grant`, NOT the job lease whose `lease_constraints.expires_at`
+/// gates `JobContext.checkLeaseExpiration` (§9.5). §9.5 forbids *renewal* of a
+/// job lease (a client MUST cancel and resubmit to extend authority); that
+/// rule does not apply to §15.4 permission-challenge leases, which MAY be
+/// refreshed via `lease.refresh` → `lease.extended`. No path here mutates a
+/// job's §9.5 `expires_at`.
+///
+/// Leases can be refreshed, revoked (`lease.revoked`), or allowed to expire
+/// naturally. A periodic sweep emits `lease.revoked` for any lease whose
+/// monotonic deadline (§14) has passed.
 public actor LeaseManager {
     public let sessionId: SessionId
 
@@ -61,6 +68,7 @@ public actor LeaseManager {
             resource: resource,
             operation: operation,
             expiresAt: expiresAt,
+            deadline: MonotonicDeadline(wallDeadline: expiresAt),
             costBudget: costBudget,
             modelUse: modelUse,
             revoked: false
@@ -84,7 +92,11 @@ public actor LeaseManager {
         return leaseId
     }
 
-    /// Refresh a lease, extending it by `seconds`. RFC §15.5.
+    /// Refresh a §15.4 permission-challenge lease, extending it by `seconds`.
+    ///
+    /// This applies only to permission-challenge leases held in this registry.
+    /// It does NOT and MUST NOT extend a job's §9.5 `lease_constraints.expires_at`
+    /// (which is renewal-prohibited — cancel and resubmit instead).
     public func refresh(leaseId: LeaseId, seconds: Int) async throws {
         guard seconds > 0 else {
             throw ARCPError.invalidArgument(
@@ -95,11 +107,12 @@ public actor LeaseManager {
         guard var record = leases[leaseId] else {
             throw ARCPError.notFound(kind: "lease", id: leaseId.rawValue)
         }
-        if record.revoked || record.expiresAt < Date() {
+        if record.revoked || record.deadline.isExpired() {
             throw ARCPError.leaseExpired(leaseId: leaseId, expiredAt: record.expiresAt)
         }
         let newExpires = max(record.expiresAt, Date()).addingTimeInterval(TimeInterval(seconds))
         record.expiresAt = newExpires
+        record.deadline = MonotonicDeadline(wallDeadline: newExpires)
         leases[leaseId] = record
         try await send(
             Envelope(
@@ -129,7 +142,7 @@ public actor LeaseManager {
     public func status(_ leaseId: LeaseId) -> LeaseStatus? {
         guard let record = leases[leaseId] else { return nil }
         if record.revoked { return .revoked }
-        if record.expiresAt < Date() { return .expired }
+        if record.deadline.isExpired() { return .expired }
         return .active
     }
 
@@ -150,14 +163,16 @@ public actor LeaseManager {
         let resource: String
         let operation: String
         var expiresAt: Date
+        /// Monotonic-clock view of `expiresAt` used for expiry checks (§14).
+        var deadline: MonotonicDeadline
         var costBudget: CostBudget?
         var modelUse: ModelUse?
         var revoked: Bool
     }
 
     private func expireDue() async {
-        let now = Date()
-        for (id, record) in leases where !record.revoked && record.expiresAt < now {
+        // §14: expiry is evaluated against the monotonic deadline, not Date().
+        for (id, record) in leases where !record.revoked && record.deadline.isExpired() {
             leases[id] = nil
             try? await send(
                 Envelope(
