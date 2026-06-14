@@ -29,6 +29,9 @@ public actor ARCPClient {
         var jobId: JobId?
         var continuation: CheckedContinuation<(JobOutcome, JobId?), any Error>?
         var progressContinuation: AsyncStream<JobProgressPayload>.Continuation?
+        /// Terminal outcome that arrived before `invoke()` attached its
+        /// continuation (the send-await race). Delivered on attach.
+        var bufferedOutcome: (JobOutcome, JobId?)?
     }
 
     /// Result of a completed job invocation.
@@ -313,9 +316,19 @@ public actor ARCPClient {
     }
 
     private func resolve(invokeId: MessageId, outcome: JobOutcome) {
-        guard let state = pendingByInvoke.removeValue(forKey: invokeId) else { return }
+        guard var state = pendingByInvoke[invokeId] else { return }
         state.progressContinuation?.finish()
-        state.continuation?.resume(returning: (outcome, state.jobId))
+        state.progressContinuation = nil
+        if let continuation = state.continuation {
+            pendingByInvoke.removeValue(forKey: invokeId)
+            continuation.resume(returning: (outcome, state.jobId))
+        } else {
+            // The terminal envelope arrived during the invoke() send-await,
+            // before the continuation was attached. Buffer the outcome so
+            // attachContinuation delivers it instead of dropping it.
+            state.bufferedOutcome = (outcome, state.jobId)
+            pendingByInvoke[invokeId] = state
+        }
     }
 
     private func finishUnhandled() {
@@ -500,6 +513,12 @@ public actor ARCPClient {
         cont: CheckedContinuation<(JobOutcome, JobId?), any Error>
     ) {
         if var state = pendingByInvoke[invokeId] {
+            if let buffered = state.bufferedOutcome {
+                // A terminal already arrived before we attached — deliver it now.
+                pendingByInvoke.removeValue(forKey: invokeId)
+                cont.resume(returning: buffered)
+                return
+            }
             state.continuation = cont
             pendingByInvoke[invokeId] = state
         } else {
