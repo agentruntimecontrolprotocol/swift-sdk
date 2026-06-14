@@ -11,6 +11,10 @@ public actor JobManager {
     public let sessionId: SessionId
     public let heartbeatInterval: TimeInterval
     public let cancelDeadline: TimeInterval
+    /// Maximum time a handler's `requestPermission` waits for a
+    /// `permission.grant`/`permission.deny` before failing (ARCP v1.1 §15.4).
+    /// Configurable so deployments are not pinned to a hardcoded value.
+    public let permissionTimeout: Duration
 
     private let log: Logger
     private let rawSend: @Sendable (Envelope) async throws -> Void
@@ -51,6 +55,7 @@ public actor JobManager {
         sessionId: SessionId,
         heartbeatInterval: TimeInterval = 30,
         cancelDeadline: TimeInterval = 5,
+        permissionTimeout: Duration = .seconds(300),
         credentialManager: CredentialManager? = nil,
         eventLog: EventLog? = nil,
         principalSubject: String? = nil,
@@ -59,6 +64,7 @@ public actor JobManager {
         self.sessionId = sessionId
         self.heartbeatInterval = heartbeatInterval
         self.cancelDeadline = cancelDeadline
+        self.permissionTimeout = permissionTimeout
         self.rawSend = send
         self.streamManager = StreamManager(sessionId: sessionId, send: send)
         self.leaseManager = LeaseManager(sessionId: sessionId, send: send)
@@ -470,6 +476,17 @@ public actor JobManager {
     }
 
     /// Send a permission challenge and await grant/deny.
+    ///
+    /// Delivery invariant: the unblocking `permission.grant`/`permission.deny`
+    /// arrives through the same serial `dispatchLoop` → `handle` →
+    /// `handlePermissionGrant` path. This await therefore MUST run off the
+    /// JobManager actor's serial executor — handlers execute inside a child
+    /// `runJob` Task for exactly this reason. A synchronous (non-Task)
+    /// permission request directly on this actor would occupy the executor
+    /// and the grant could never be delivered. `JobControlTests` covers the
+    /// happy path (grant delivered on the same session without deadlock).
+    ///
+    /// `timeout` defaults to the session's configured `permissionTimeout`.
     func requestPermission(
         jobId: JobId,
         permission: String,
@@ -477,8 +494,9 @@ public actor JobManager {
         operation: String,
         reason: String?,
         leaseSeconds: Int,
-        timeout: Duration
+        timeout: Duration? = nil
     ) async throws -> LeaseId {
+        let deadline = timeout ?? permissionTimeout
         let id = MessageId.random()
         try await send(
             Envelope(
@@ -496,7 +514,7 @@ public actor JobManager {
                 )
             )
         )
-        let outcome = try await permissionRegistry.awaitResponse(id: id, deadline: timeout)
+        let outcome = try await permissionRegistry.awaitResponse(id: id, deadline: deadline)
         switch outcome {
         case .granted(let leaseId, _): return leaseId
         case .denied(let reason):

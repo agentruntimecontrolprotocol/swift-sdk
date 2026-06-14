@@ -25,6 +25,7 @@ public actor ARCPRuntime {
     private let challengeNonce: @Sendable () -> String
     private let credentialProvisioner: (any CredentialProvisioner)?
     private let credentialRetention: any CredentialRetention
+    private let permissionTimeout: Duration
 
     public init(
         identity: IdentityBlock,
@@ -34,6 +35,7 @@ public actor ARCPRuntime {
         challengeRequired: Bool = false,
         credentialProvisioner: (any CredentialProvisioner)? = nil,
         credentialRetention: any CredentialRetention = InMemoryCredentialRetention(),
+        permissionTimeout: Duration = .seconds(300),
         eventLog: EventLog? = nil,
         extensionRegistry: ExtensionRegistry? = nil,
         challengeNonce: @escaping @Sendable () -> String = { Ulid.next() }
@@ -61,6 +63,7 @@ public actor ARCPRuntime {
         self.challengeNonce = challengeNonce
         self.credentialProvisioner = credentialProvisioner
         self.credentialRetention = credentialRetention
+        self.permissionTimeout = permissionTimeout
         self.eventLog = try eventLog ?? EventLog.inMemory()
         self.extensionRegistry =
             extensionRegistry ?? ExtensionRegistry(advertised: effectiveCapabilities.extensions)
@@ -110,6 +113,7 @@ public actor ARCPRuntime {
         sessions[info.sessionId] = info
         let jobManager = JobManager(
             sessionId: info.sessionId,
+            permissionTimeout: permissionTimeout,
             credentialManager: credentialProvisioner.map {
                 CredentialManager(
                     provisioner: $0,

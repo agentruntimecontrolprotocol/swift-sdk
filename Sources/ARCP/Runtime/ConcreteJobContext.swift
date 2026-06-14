@@ -167,14 +167,15 @@ struct ConcreteJobContext: JobContext, Sendable {
         reason: String?,
         leaseSeconds: Int
     ) async throws -> LeaseId {
+        // No explicit timeout: defer to the session's configured
+        // `permissionTimeout` (ARCP v1.1 §15.4) rather than a hardcoded value.
         try await manager.requestPermission(
             jobId: jobId,
             permission: permission,
             resource: resource,
             operation: operation,
             reason: reason,
-            leaseSeconds: leaseSeconds,
-            timeout: .seconds(300)
+            leaseSeconds: leaseSeconds
         )
     }
 

@@ -43,4 +43,44 @@ struct JobControlTests {
         }
         #expect(refused.code == .jobNotFound)
     }
+
+    @Test("Permission timeout is configurable: a never-answered request times out (#97)")
+    func permissionTimeoutConfigurable() async throws {
+        let sink = EnvelopeSink()
+        let manager = JobManager(
+            sessionId: SessionId("sess_perm"),
+            permissionTimeout: .milliseconds(100),
+            send: { envelope in await sink.append(envelope) }
+        )
+        await manager.register(PermissionRequestingTool())
+        try await manager.handleToolInvoke(
+            envelope: Envelope(payload: .toolInvoke(ToolInvokePayload(tool: "needs.perm", arguments: .null))),
+            payload: ToolInvokePayload(tool: "needs.perm", arguments: .null)
+        )
+        // The handler awaits a grant that never arrives; with a 100ms
+        // permissionTimeout the job must fail (not hang) well within 5s.
+        var failure: ErrorEnvelope?
+        for _ in 0..<50 {
+            for payload in await sink.payloads() {
+                if case .jobFailed(let p) = payload { failure = p.error }
+            }
+            if failure != nil { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        #expect(failure?.code == .deadlineExceeded)
+    }
+}
+
+private struct PermissionRequestingTool: ToolHandler {
+    let name = "needs.perm"
+    func execute(invocation: ToolInvocation, context: any JobContext) async throws -> ToolOutput {
+        _ = try await context.requestPermission(
+            permission: "fs.write",
+            resource: "/tmp/x",
+            operation: "write",
+            reason: nil,
+            leaseSeconds: 60
+        )
+        return .empty
+    }
 }
