@@ -32,13 +32,22 @@ public actor JobManager {
     /// it and surfaces `agentVersionNotAvailable` for unknown pins.
     public var agentInventory: AgentInventory?
 
+    /// Session-scoped, strictly-monotonic, gap-free event sequence counter
+    /// (ARCP v1.1 §8.3). Every job-event envelope sent through this funnel is
+    /// stamped with the next value.
+    private var sessionEventSeq: UInt64 = 0
+
     /// Visible to the idempotency extension (`JobManager+Idempotency.swift`).
     func send(_ envelope: Envelope) async throws {
+        sessionEventSeq &+= 1
+        let seq = sessionEventSeq
+        var stamped = envelope
+        stamped.eventSeq = seq
         if let jid = envelope.jobId, var record = jobs[jid] {
-            record.lastEventSeq &+= 1
+            record.lastEventSeq = seq
             jobs[jid] = record
         }
-        try await rawSend(envelope)
+        try await rawSend(stamped)
     }
     private let streamManager: StreamManager
     public let permissionRegistry = PendingRegistry<PermissionOutcome>()

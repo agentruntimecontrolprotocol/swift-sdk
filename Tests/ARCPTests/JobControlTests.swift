@@ -71,6 +71,40 @@ struct JobControlTests {
     }
 }
 
+extension JobControlTests {
+    @Test("Job-event envelopes carry a session-scoped, gap-free event_seq (§8.3)")
+    func eventSeqGapFree() async throws {
+        let sink = EnvelopeSink()
+        let manager = makeManager(sink)
+        await manager.register(EchoOnceTool())
+        try await manager.handleToolInvoke(
+            envelope: Envelope(
+                payload: .toolInvoke(ToolInvokePayload(tool: "echo.once", arguments: .null))),
+            payload: ToolInvokePayload(tool: "echo.once", arguments: .null)
+        )
+        var sawTerminal = false
+        for _ in 0..<50 {
+            for payload in await sink.payloads() {
+                if case .jobCompleted = payload { sawTerminal = true }
+            }
+            if sawTerminal { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(sawTerminal)
+        let seqs = (await sink.all()).compactMap(\.eventSeq)
+        #expect(!seqs.isEmpty)
+        // Strictly monotonic and gap-free starting at 1.
+        #expect(seqs == Array(1...UInt64(seqs.count)))
+    }
+}
+
+private struct EchoOnceTool: ToolHandler {
+    let name = "echo.once"
+    func execute(invocation: ToolInvocation, context: any JobContext) async throws -> ToolOutput {
+        .value(.string("ok"))
+    }
+}
+
 private struct PermissionRequestingTool: ToolHandler {
     let name = "needs.perm"
     func execute(invocation: ToolInvocation, context: any JobContext) async throws -> ToolOutput {

@@ -38,6 +38,11 @@ public struct Envelope: Sendable, Hashable {
     public var causationId: MessageId?
     /// Idempotency key for tool-invocation retry safety (RFC §6.4).
     public var idempotencyKey: IdempotencyKey?
+    /// Session-scoped, strictly-monotonic, gap-free sequence number stamped
+    /// on job-event envelopes by the runtime (ARCP v1.1 §5 / §8.3). Clients
+    /// use it to detect gaps and drive resume. `nil` on non-event envelopes
+    /// (handshake, control) that are not part of the ordered event stream.
+    public var eventSeq: UInt64?
     /// Priority hint for transports and subscription filters.
     public var priority: Priority
     /// Free-form extension fields (RFC §21).
@@ -61,6 +66,7 @@ public struct Envelope: Sendable, Hashable {
         correlationId: MessageId? = nil,
         causationId: MessageId? = nil,
         idempotencyKey: IdempotencyKey? = nil,
+        eventSeq: UInt64? = nil,
         priority: Priority = .default,
         extensions: [String: JSONValue]? = nil,
         payload: MessageType
@@ -90,6 +96,7 @@ public struct Envelope: Sendable, Hashable {
         self.correlationId = correlationId
         self.causationId = causationId
         self.idempotencyKey = idempotencyKey
+        self.eventSeq = eventSeq
         self.priority = priority
         self.extensions = extensions
         self.payload = payload
@@ -114,6 +121,7 @@ extension Envelope: Codable {
         case correlationId = "correlation_id"
         case causationId = "causation_id"
         case idempotencyKey = "idempotency_key"
+        case eventSeq = "event_seq"
         case priority
         case extensions
         case payload
@@ -137,6 +145,7 @@ extension Envelope: Codable {
         self.correlationId = try container.decodeIfPresent(MessageId.self, forKey: .correlationId)
         self.causationId = try container.decodeIfPresent(MessageId.self, forKey: .causationId)
         self.idempotencyKey = try container.decodeIfPresent(IdempotencyKey.self, forKey: .idempotencyKey)
+        self.eventSeq = try container.decodeIfPresent(UInt64.self, forKey: .eventSeq)
         self.priority = try container.decodeIfPresent(Priority.self, forKey: .priority) ?? .default
         self.extensions = try container.decodeIfPresent([String: JSONValue].self, forKey: .extensions)
 
@@ -162,6 +171,7 @@ extension Envelope: Codable {
         try container.encodeIfPresent(correlationId, forKey: .correlationId)
         try container.encodeIfPresent(causationId, forKey: .causationId)
         try container.encodeIfPresent(idempotencyKey, forKey: .idempotencyKey)
+        try container.encodeIfPresent(eventSeq, forKey: .eventSeq)
         try container.encode(priority, forKey: .priority)
         try container.encodeIfPresent(extensions, forKey: .extensions)
         let payloadEncoder = container.superEncoder(forKey: .payload)

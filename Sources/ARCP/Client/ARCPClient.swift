@@ -25,6 +25,13 @@ public actor ARCPClient {
     private var unhandledContinuation: AsyncStream<Envelope>.Continuation?
     private var permissionHandler: any PermissionHandler = DefaultPermissionHandler()
 
+    /// Highest session-scoped `event_seq` observed on an inbound job-event
+    /// envelope (ARCP v1.1 §8.3). `nil` until the first event arrives.
+    public private(set) var lastEventSeq: UInt64?
+    /// Set once a gap in the inbound `event_seq` sequence is detected, which
+    /// signals the client should resume from `lastEventSeq` (ARCP v1.1 §6.3).
+    public private(set) var eventSeqGapDetected = false
+
     private struct JobInvocationState {
         var jobId: JobId?
         var continuation: CheckedContinuation<(JobOutcome, JobId?), any Error>?
@@ -162,6 +169,21 @@ public actor ARCPClient {
         throw ARCPError.unauthenticated(detail: "transport closed before session.accepted")
     }
 
+    /// Track the inbound `event_seq` stream and flag any gap (§8.3).
+    private func observeEventSeq(_ envelope: Envelope) {
+        guard let seq = envelope.eventSeq else { return }
+        if let last = lastEventSeq, seq > last + 1 {
+            eventSeqGapDetected = true
+            log.warning(
+                "event_seq gap detected",
+                metadata: ["expected": "\(last + 1)", "received": "\(seq)"]
+            )
+        }
+        if seq > (lastEventSeq ?? 0) {
+            lastEventSeq = seq
+        }
+    }
+
     private func startDispatcher() {
         dispatcher = Task { [mailbox] in
             while let envelope = await mailbox.next() {
@@ -172,6 +194,7 @@ public actor ARCPClient {
     }
 
     private func dispatch(envelope: Envelope) async {
+        observeEventSeq(envelope)
         switch envelope.payload {
         case .pong(let payload):
             if let id = envelope.correlationId,

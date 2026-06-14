@@ -549,6 +549,7 @@ extension Envelope {
             correlationId: correlationId,
             causationId: causationId,
             idempotencyKey: idempotencyKey,
+            eventSeq: eventSeq,
             priority: priority,
             extensions: extensions,
             payload: payload
