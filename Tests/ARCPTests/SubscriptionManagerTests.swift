@@ -114,10 +114,11 @@ struct SubscriptionManagerTests {
             return nil
         }
         #expect(events.contains { $0 == .object(["type": .string("subscription.backfill_complete")]) })
-        #expect(events.contains { event in
-            guard case .object(let dict) = event else { return false }
-            return dict["id"] == .string(third.id.rawValue)
-        })
+        #expect(
+            events.contains { event in
+                guard case .object(let dict) = event else { return false }
+                return dict["id"] == .string(third.id.rawValue)
+            })
     }
 
     @Test("shutdown closes all subscriptions")
@@ -153,8 +154,8 @@ struct SubscriptionManagerTests {
     }
 }
 
-private extension Envelope {
-    func with(jobId: JobId? = nil, priority: Priority? = nil) -> Envelope {
+extension Envelope {
+    fileprivate func with(jobId: JobId? = nil, priority: Priority? = nil) -> Envelope {
         Envelope(
             arcp: arcp,
             id: id,

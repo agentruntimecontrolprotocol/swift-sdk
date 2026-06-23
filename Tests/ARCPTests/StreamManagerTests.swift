@@ -8,9 +8,11 @@ struct StreamManagerTests {
     @Test("outbound handle emits open, chunk, close, and error envelopes")
     func outboundHandleEmitsLifecycle() async throws {
         let sink = EnvelopeSink()
-        let manager = StreamManager(sessionId: SessionId("sess_stream"), send: { envelope in
-            await sink.append(envelope)
-        })
+        let manager = StreamManager(
+            sessionId: SessionId("sess_stream"),
+            send: { envelope in
+                await sink.append(envelope)
+            })
         let handle = try await manager.openOutbound(
             jobId: JobId("job_stream"),
             kind: .text,
@@ -29,14 +31,15 @@ struct StreamManagerTests {
         try await second.error(.internal(detail: "boom", cause: nil))
 
         let payloads = await sink.payloads()
-        #expect(payloads.map(\.typeName) == [
-            "stream.open",
-            "stream.chunk",
-            "stream.chunk",
-            "stream.close",
-            "stream.open",
-            "stream.error",
-        ])
+        #expect(
+            payloads.map(\.typeName) == [
+                "stream.open",
+                "stream.chunk",
+                "stream.chunk",
+                "stream.close",
+                "stream.open",
+                "stream.error",
+            ])
     }
 
     @Test("inbound subscription receives chunks and finishes on close")

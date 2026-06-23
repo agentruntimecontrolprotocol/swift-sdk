@@ -20,7 +20,9 @@ public struct MonotonicDeadline: Sendable, Hashable {
     /// small so leases stay responsive while tolerating minor clock skew.
     public static let grace: Duration = .milliseconds(250)
 
-    public init(wallDeadline: Date, now: Date = Date(), monoNow: ContinuousClock.Instant = ContinuousClock.now) {
+    public init(
+        wallDeadline: Date, now: Date = Date(), monoNow: ContinuousClock.Instant = ContinuousClock.now
+    ) {
         self.wallDeadline = wallDeadline
         self.referenceWall = now
         self.referenceMono = monoNow

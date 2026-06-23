@@ -29,16 +29,18 @@ struct CredentialManagerTests {
         let replacement = try await manager.rotate(jobId: jobId, credentialId: "old_access")
 
         #expect(replacement.id == "new_access")
-        #expect(await manager.outstandingCredentialIds == [
-            "new_access",
-            "new_refresh",
-            "old_refresh",
-        ])
-        #expect(try await retention.loadOutstanding().map(\.1).sorted() == [
-            "new_access",
-            "new_refresh",
-            "old_refresh",
-        ])
+        #expect(
+            await manager.outstandingCredentialIds == [
+                "new_access",
+                "new_refresh",
+                "old_refresh",
+            ])
+        #expect(
+            try await retention.loadOutstanding().map(\.1).sorted() == [
+                "new_access",
+                "new_refresh",
+                "old_refresh",
+            ])
         #expect(await provisioner.revoked == ["old_access"])
     }
 
