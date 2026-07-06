@@ -1,5 +1,5 @@
 {
-  "originHash" : "ba7db0085f78bbbfa5d74c01616c4ae2c90de1b613dce3ead01ab9df7f57870c",
+  "originHash" : "6d90ce03136ab1c4064c64dfaee71dd8243be54b46a84afb1084a50a82446304",
   "pins" : [
     {
       "identity" : "csqlite",
@@ -15,8 +15,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/vapor/jwt-kit.git",
       "state" : {
-        "revision" : "a93a262fefb0938b799191b54f581ffa43422d96",
-        "version" : "5.5.0"
+        "revision" : "7abc497b0f907191933c87166e9b6a41b9d028d6",
+        "version" : "5.6.0"
       }
     },
     {
@@ -132,8 +132,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-format.git",
       "state" : {
-        "revision" : "62eaad2822b865407b8cde56c36386c00800f7ec",
-        "version" : "602.0.0"
+        "revision" : "d54c5be7afba3e5f52ae29e2371e444a3c2a49c1",
+        "version" : "603.0.0"
       }
     },
     {
@@ -159,14 +159,14 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-log.git",
       "state" : {
-        "revision" : "2aed77ae5ec9a86d8fe42c12275e4c2653a286ee",
-        "version" : "1.13.1"
+        "revision" : "a878e7f8f46cfc0e1125e565b5c08e7d5272dc9a",
+        "version" : "1.14.0"
       }
     },
     {
       "identity" : "swift-markdown",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/apple/swift-markdown.git",
+      "location" : "https://github.com/swiftlang/swift-markdown.git",
       "state" : {
         "revision" : "3c6f9523da3a1ec2fd829673e472d95b8097a3b8",
         "version" : "0.8.0"
@@ -177,8 +177,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-nio.git",
       "state" : {
-        "revision" : "77b84ac2cd2ac9e4ac67d19f045fd5b434f56967",
-        "version" : "2.101.0"
+        "revision" : "cd3e1152083706d77b223fb29110e590efcc70c0",
+        "version" : "2.101.2"
       }
     },
     {
@@ -240,8 +240,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/swiftlang/swift-syntax.git",
       "state" : {
-        "revision" : "4799286537280063c85a32f09884cfbca301b1a1",
-        "version" : "602.0.0"
+        "revision" : "79e4b74a295b6eb74a8b585e3a39d29e70c1dbd1",
+        "version" : "603.0.2"
       }
     },
     {
